@@ -1,0 +1,14 @@
+{
+  "fixtureStatus": "provisional",
+  "context": {
+    "market": "US",
+    "seed": "retro halloween cats",
+    "capturedAt": "2026-08-27T03:05:00.000Z",
+    "rawRef": "raw/culture/reddit/retro-halloween-cats.json"
+  },
+  "data": {
+    "normalizedValue": 0.6,
+    "mentionCount": 37,
+    "engagementCount": 1240
+  }
+}

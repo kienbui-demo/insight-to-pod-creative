@@ -1,0 +1,18 @@
+{
+  "fixtureStatus": "provisional",
+  "context": {
+    "market": "US",
+    "seed": "retro halloween cats",
+    "capturedAt": "2026-08-27T03:10:00.000Z",
+    "rawRef": "raw/culture/pinterest/retro-halloween-cats.json"
+  },
+  "data": {
+    "normalizedValue": 0.7,
+    "pinCount": 920,
+    "saveCount": 311,
+    "images": [
+      { "url": "https://images.example/pinterest/retro-cat-1.png" },
+      { "url": "https://images.example/pinterest/retro-cat-2.png" }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "fixtureStatus": "provisional",
+  "context": {
+    "market": "US",
+    "seed": "retro halloween cats",
+    "capturedAt": "2026-08-27T03:00:00.000Z",
+    "rawRef": "raw/culture/google-trends/retro-halloween-cats.json"
+  },
+  "data": {
+    "normalizedValue": 0.8,
+    "timeline": [
+      { "date": "2026-08-01", "value": 42 },
+      { "date": "2026-08-08", "value": 58 },
+      { "date": "2026-08-15", "value": 76 }
+    ]
+  }
+}
