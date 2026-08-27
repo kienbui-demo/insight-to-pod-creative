@@ -1,0 +1,18 @@
+{
+  "fixtureStatus": "provisional",
+  "context": {
+    "market": "US",
+    "seed": "retro halloween cats",
+    "capturedAt": "2026-08-27T03:15:00.000Z",
+    "rawRef": "raw/culture/tiktok/retro-halloween-cats.json"
+  },
+  "data": {
+    "normalizedValue": 0.9,
+    "videoCount": 28,
+    "viewCount": 845000,
+    "images": [
+      { "url": "https://images.example/tiktok/retro-cat-cover-1.png" },
+      { "url": "https://images.example/tiktok/retro-cat-cover-2.png" }
+    ]
+  }
+}
