@@ -1,0 +1,24 @@
+{
+  "fixtureStatus": "provisional",
+  "context": {
+    "market": "US",
+    "seed": "retro halloween cats",
+    "capturedAt": "2026-08-27T04:00:00.000Z",
+    "rawRef": "raw/commerce/amazon/retro-halloween-cats.json"
+  },
+  "data": {
+    "demand": {
+      "normalizedValue": 0.82,
+      "searchVolume": 18400,
+      "bestSellerRank": 1320
+    },
+    "competition": {
+      "normalizedValue": 0.68,
+      "competitorCount": 247
+    },
+    "products": [
+      { "title": "Vintage Black Cat Shirt", "price": 21.99 },
+      { "title": "Retro Halloween Cat Tee", "price": 18.5 }
+    ]
+  }
+}
