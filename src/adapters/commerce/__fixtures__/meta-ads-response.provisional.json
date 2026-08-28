@@ -1,0 +1,16 @@
+{
+  "fixtureStatus": "provisional",
+  "context": {
+    "market": "US",
+    "seed": "retro halloween cats",
+    "capturedAt": "2026-08-27T04:10:00.000Z",
+    "rawRef": "raw/commerce/meta-ads/retro-halloween-cats.json"
+  },
+  "data": {
+    "ad": {
+      "normalizedValue": 0.74,
+      "activeAdCount": 39,
+      "longestActiveDays": 46
+    }
+  }
+}

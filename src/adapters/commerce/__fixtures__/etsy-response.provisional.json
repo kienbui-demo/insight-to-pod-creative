@@ -1,0 +1,26 @@
+{
+  "fixtureStatus": "provisional",
+  "context": {
+    "market": "US",
+    "seed": "retro halloween cats",
+    "capturedAt": "2026-08-27T04:05:00.000Z",
+    "rawRef": "raw/commerce/etsy/retro-halloween-cats.json"
+  },
+  "data": {
+    "demand": {
+      "normalizedValue": 0.64,
+      "searchVolume": 7300,
+      "rank": 860
+    },
+    "price": {
+      "normalizedValue": 0.77,
+      "minimumPrice": 14.5,
+      "maximumPrice": 31.99,
+      "medianPrice": 22
+    },
+    "listings": [
+      { "title": "Spooky Cat Sweatshirt", "price": 27.5 },
+      { "title": "Halloween Cat Mug", "price": 16.25 }
+    ]
+  }
+}
