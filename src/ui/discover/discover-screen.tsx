@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { AppShell } from "../components/app-shell";
 import { Badge } from "../components/ui-primitives";
 import { LiveTheater } from "../live-theater/live-theater";
-import { createMockUiEventSource } from "../mocks/mock-ui-event-source";
+import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
 import { TREND_CARDS } from "../mocks/trend-cards";
 import { TrendCardTile } from "../trends/trend-card-tile";
 
@@ -13,7 +13,23 @@ const suggestions = ["Halloween", "Christmas", "Winter gifting", "US", "DE"];
 
 export function DiscoverScreen() {
   const eventSource = useMemo(
-    () => createMockUiEventSource(TREND_CARDS[0]),
+    () =>
+      createSseUiEventSource({
+        url: "/api/live",
+        runId: crypto.randomUUID(),
+        request: {
+          kind: "trend-card",
+          crawl: {
+            source: "google_trends",
+            market: "US",
+            seed: TREND_CARDS[0].seed,
+            productType: TREND_CARDS[0].productType,
+            mode: "live",
+          },
+        },
+        fetch: globalThis.fetch.bind(globalThis),
+        maxReconnects: 1,
+      }),
     [],
   );
 

@@ -80,3 +80,83 @@ Rules: open stream BEFORE sending user events; on reconnect pull full history an
 - `seller_projects` — one row per seller project/session mapping.
 - Cache lookup order: exact match (market+seed+productType) → pgvector semantic search ≥ threshold → miss.
 - Migrations are append-only: filename `NNNN_description.sql` where NNNN is a UTC timestamp, NOT a sequential counter (avoids two agents claiming the same number).
+
+## C6. Live run identity
+
+- `runId` is a client-generated opaque UUID for one logical UI action.
+- Reconnects for that action reuse the same `runId`.
+- The first request creates one ModelArk Managed Agent session and persists its returned ID.
+- Later requests and reconnects resolve the persisted MA session ID by `runId`.
+- A `runId` is never treated as the MA session ID.
+- Different logical UI actions receive different `runId` values.
+- Mapping creation must be concurrency-safe: competing first requests for one `runId` resolve to one canonical persisted mapping.
+- A live run is transport-level and can exist before any seller project is persisted, so its mapping is stored in `ma_run_sessions`, not `seller_projects`.
+
+```typescript
+export interface RunSessionMapping {
+  runId: string;
+  maSessionId: string;
+  createdAt: string; // ISO timestamp
+  updatedAt: string; // ISO timestamp
+}
+
+export interface CreateRunSessionMapping {
+  runId: string;
+  maSessionId: string;
+}
+
+export interface RunSessionRepository {
+  findByRunId(runId: string): Promise<RunSessionMapping | null>;
+  saveIfAbsent(input: CreateRunSessionMapping): Promise<RunSessionMapping>;
+}
+```
+
+`saveIfAbsent` returns the canonical stored mapping. If another caller already stored a mapping for the same `runId`, it returns that existing mapping rather than replacing it.
+
+### C1 provisional MA-event recording shape
+
+The C1 recorded MA fixtures use this frozen envelope and provisional event union. `fixtureStatus` must remain the literal `"provisional"`. These fixtures verify decoder and semantic-mapper logic; they do not claim that the event union is the final real ModelArk wire schema. C1 must not change the frozen BFF-local `RawMaEvent` union or the frozen Seedream custom-tool schema.
+
+```typescript
+export interface ProvisionalMaEventRecording {
+  fixtureStatus: "provisional";
+  events: readonly ProvisionalManagedAgentEvent[];
+}
+
+export type ProvisionalManagedAgentEvent =
+  | {
+      id: string;
+      type: "agent.custom_tool_use";
+      name: "crawl";
+      input: { source: CrawlSource };
+    }
+  | { id: string; type: "agent.thinking"; note?: string }
+  | {
+      id: string;
+      type: "user.custom_tool_result";
+      custom_tool_use_id: string;
+      name: "generate_design_image";
+      input: GenerateDesignImageInput;
+      result: GenerateDesignImageResult;
+    }
+  | {
+      id: string;
+      type: "agent.output";
+      output: { kind: "trend_card"; card: TrendCard };
+    }
+  | {
+      id: string;
+      type: "session.error";
+      error: {
+        source?: CrawlSource;
+        recoverable: boolean;
+        message: string;
+      };
+    }
+  | {
+      id: string;
+      type: "session.status_idle";
+      stop_reason: { type: "end_turn" };
+    }
+  | { id: string; type: "span.model_request_start"; model: string };
+```
