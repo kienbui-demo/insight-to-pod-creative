@@ -39,5 +39,18 @@ Serialize hotspots (global mutex — one owner or append-only):
 - **C3. Monitoring** — 3 groups (infra / crawl success / cost).
 - **C4. Acceptance run** — the 3 acceptance signals in spec.md §8.
 
+### C2 ownership and touched-files map
+
+| Feature | Owner dir(s) / shared files | Depends on | Lane | Status |
+|-|-|-|-|-|
+| **C2. Monetization** — Publish-to-Printerval action + credit debits | `src/monetization/*`, `src/adapters/printerval/*`; shared C2 files listed below | C1 | 🔴 Full TDD after C7 freeze | Contract freeze in review |
+
+C2 owns these shared-file changes for the duration of the serial Phase C feature:
+
+- Contract freeze: `contracts/contracts.md`, `packages/contracts/monetization.ts`, `packages/contracts/index.ts`, `packages/config/credits.config.ts`, one append-only `packages/contracts/migrations/<UTC>_monetization.sql`, `.env.example`.
+- RED/implementation after the C7 freeze is approved: `src/bff/types.ts`, `src/bff/router.ts`, `src/integration/live-route.ts`, a new in-memory-testable publish-handler factory under `src/integration/*`, and the C2 UI files/tests under `src/ui/*`.
+- C2 does not own a real `app/api/live/route.ts` composition root and does not persist generated designs into `seller_projects`.
+- Frozen C3 `TrendCard` and C4 `UiEvent` contracts are excluded from C2 changes.
+
 ## Suggested parallelism
 After Phase A gate: B1, B2, B3, B5, B8 can start simultaneously (disjoint dirs). B4 waits on B1/B2 record shape; B6 pairs with B8 via C4 contract; B7 can start anytime after A2. Merge each via the queue.

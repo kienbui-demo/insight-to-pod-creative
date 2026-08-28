@@ -160,3 +160,231 @@ export type ProvisionalManagedAgentEvent =
     }
   | { id: string; type: "span.model_request_start"; model: string };
 ```
+
+## C7. Monetization
+
+C7 is additive. Frozen C3 `TrendCard` and C4 `UiEvent` remain unchanged.
+
+```typescript
+export type CreditAction = "generate_design" | "deep_analysis";
+
+// sellerId is injected from the authenticated BFF session. The BFF must never
+// trust or forward a sellerId supplied in client JSON.
+export interface CreditDebitRequest {
+  sellerId: string;
+  runId: string;
+  action: CreditAction;
+  idempotencyKey: string;
+}
+
+export interface CreditBalance {
+  sellerId: string;
+  availableCredits: number;
+  version: number;
+  updatedAt: string;
+}
+
+export interface CreditDebitDecision {
+  id: string;
+  sellerId: string;
+  runId: string;
+  action: CreditAction;
+  idempotencyKey: string;
+  cost: number;
+  status: "applied" | "rejected";
+  balanceBefore: number;
+  balanceAfter: number;
+  decidedAt: string;
+}
+
+export interface InsufficientCreditError {
+  code: "insufficient_credit";
+  sellerId: string;
+  runId: string;
+  action: CreditAction;
+  idempotencyKey: string;
+  requiredCredits: number;
+  availableCredits: number;
+}
+
+export interface CreditIdempotencyConflictError {
+  code: "idempotency_conflict";
+  sellerId: string;
+  idempotencyKey: string;
+  existingRunId: string;
+  requestedRunId: string;
+  existingAction: CreditAction;
+  requestedAction: CreditAction;
+}
+
+export type CreditDebitResult =
+  | {
+      ok: true;
+      decision: CreditDebitDecision & { status: "applied" };
+    }
+  | {
+      ok: false;
+      decision: CreditDebitDecision & { status: "rejected" };
+      error: InsufficientCreditError;
+    }
+  | {
+      ok: false;
+      error: CreditIdempotencyConflictError;
+    };
+
+export interface SeedCreditGrantLedgerEntry {
+  id: string;
+  sellerId: string;
+  kind: "grant";
+  grantReason: "seed";
+  credits: number;
+  idempotencyKey: string;
+  balanceAfter: number;
+  createdAt: string;
+}
+
+export interface CreditDebitLedgerEntry {
+  id: string;
+  sellerId: string;
+  kind: "debit";
+  action: CreditAction;
+  credits: number;
+  idempotencyKey: string;
+  debitDecisionId: string;
+  balanceAfter: number;
+  createdAt: string;
+}
+
+export interface CreditRefundLedgerEntry {
+  id: string;
+  sellerId: string;
+  kind: "grant";
+  grantReason: "refund";
+  credits: number;
+  idempotencyKey: string;
+  originalDebitDecisionId: string;
+  balanceAfter: number;
+  createdAt: string;
+}
+
+export type CreditLedgerEntry =
+  | SeedCreditGrantLedgerEntry
+  | CreditDebitLedgerEntry
+  | CreditRefundLedgerEntry;
+
+export interface PublishDesignPayload {
+  // MVP accepts the Seedream URL directly. Replace it with a durable BytePlus
+  // TOS object key before enabling real Printerval publishing.
+  assetUrl: string;
+  title: string;
+  description?: string;
+  tags?: string[];
+  market: string;
+  productType: string;
+}
+
+// sellerId is injected from the authenticated BFF session. The BFF must never
+// trust or forward a sellerId supplied in client JSON.
+export interface PublishDesignRequest {
+  sellerId: string;
+  projectId: string;
+  idempotencyKey: string;
+  design: PublishDesignPayload;
+}
+
+export type PublicationStatus = "pending" | "published" | "failed";
+
+export interface Publication {
+  id: string;
+  sellerId: string;
+  projectId: string;
+  provider: "printerval";
+  idempotencyKey: string;
+  status: PublicationStatus;
+  providerPublicationId?: string;
+  publishedUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublicationError {
+  code: "printerval_rejected" | "printerval_unavailable";
+  recoverable: boolean;
+  message: string;
+}
+
+export interface PublicationIdempotencyConflictError {
+  code: "publication_idempotency_conflict";
+  sellerId: string;
+  idempotencyKey: string;
+  existingProjectId: string;
+  requestedProjectId: string;
+}
+
+export type PublishDesignResult =
+  | {
+      ok: true;
+      publication: Publication & { status: "pending" | "published" };
+    }
+  | {
+      ok: false;
+      publication: Publication & { status: "failed" };
+      error: PublicationError;
+    }
+  | {
+      ok: false;
+      error: PublicationIdempotencyConflictError;
+    };
+
+export interface ProvisionalPrintervalPublishRequest {
+  projectId: string;
+  idempotencyKey: string;
+  design: PublishDesignPayload;
+}
+
+export type ProvisionalPrintervalPublishResponse =
+  | {
+      ok: true;
+      publicationId: string;
+      status: "published";
+      publishedUrl?: string;
+    }
+  | {
+      ok: false;
+      error: PublicationError;
+    };
+
+export interface ProvisionalPrintervalPublishingFixture {
+  fixtureStatus: "provisional";
+  request: ProvisionalPrintervalPublishRequest;
+  response: ProvisionalPrintervalPublishResponse;
+}
+```
+
+### Credit rules
+
+- Costs are server-owned: `generate_design` costs 5 credits and `deep_analysis` costs 2. Publishing is unmetered. Clients never submit a cost.
+- A seller's first credit-account creation atomically creates a 20-credit balance and an immutable `grant` ledger entry with `grantReason: "seed"`.
+- Balance is stored in `credit_accounts`; `credit_ledger_entries` is the immutable audit trail. All credit quantities are non-negative integers.
+- Debit idempotency is scoped by `(sellerId, idempotencyKey)`. The key is bound to its original `runId` and `action`. An identical replay returns the persisted canonical result, including a rejected insufficient-credit result, with no `replayed` flag and no second debit.
+- Reusing a debit key with a different `runId` or action returns `idempotency_conflict` and must not start another expensive operation. An identical replay/reconnect also must not restart the operation; the original run is resumed through C6 semantics.
+- The debit transaction order is: claim the idempotency key with an internal `pending` database row; lock the account row; resolve and check the server-owned cost; then either finalize a rejected decision without changing balance, or atomically decrement balance, increment version, append a debit ledger entry, and finalize the applied decision. Internal `pending` rows are never returned as `CreditDebitResult`.
+- Credit is checked before creating/sending an MA operation or invoking Seedream. Insufficient credit is returned as the structured `InsufficientCreditError` JSON body with HTTP 402; no C4 event is added and no MA/Seedream call occurs.
+- If an applied debit's downstream MA/Seedream operation fails, the service automatically restores the full cost with one compensating immutable `grant` entry having `grantReason: "refund"` and `originalDebitDecisionId` equal to the applied decision. The refund is idempotent: at most one refund entry may reference a debit decision. Its idempotency key must be distinct from the original debit's key so the debit and refund never collide on `(sellerId, idempotencyKey)`.
+- All model, embedding, and image work continues through the existing BytePlus ModelArk Managed Agent boundary. Seedream is never called directly.
+
+### Publication rules
+
+- Publishing is unmetered. It does not read or mutate credit balance.
+- The BFF validates that the authenticated seller owns `projectId`; `seller_projects` is otherwise unchanged. C2 does not persist generated designs there. The publish request carries the design payload directly.
+- Publication idempotency is scoped by `(sellerId, idempotencyKey)`. Reserve a `pending` publication row before any provider call; only the reservation winner may invoke Printerval.
+- An identical publication replay returns the same persisted canonical result, including failure, with no `replayed` flag. A deliberate retry after failure requires a new idempotency key.
+- No real Printerval API schema is claimed in C2. Recorded adapter fixtures must use `ProvisionalPrintervalPublishingFixture` and keep `fixtureStatus` as the literal `"provisional"`. Real-API verification is a later Phase C milestone.
+- All future Printerval HTTP is isolated to the single `src/adapters/printerval/*` publishing client. Printerval is a business provider, not a model endpoint.
+- MVP passes the Seedream URL as `design.assetUrl`. This is explicit technical debt: replace it with a durable BytePlus TOS object key before enabling real publishing.
+
+### Backend environment names
+
+- `PRINTERVAL_API_BASE_URL`
+- `PRINTERVAL_API_KEY`
+- Existing `DATABASE_URL` and `ARK_*` variables are reused. Printerval credentials remain backend-only.
