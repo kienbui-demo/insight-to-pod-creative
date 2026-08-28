@@ -10,4 +10,8 @@
   body {
     @apply bg-slate-50 text-slate-950 antialiased;
   }
+
+  ::selection {
+    @apply bg-indigo-200 text-indigo-950;
+  }
 }
