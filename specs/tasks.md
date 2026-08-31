@@ -81,5 +81,38 @@ C3 will NOT touch:
 - Real Printerval integration or ModelArk/Seedream invocation behavior.
 - `npm audit fix`.
 
+### C4 ownership and touched-files map
+
+| Feature | Owner dir(s) / shared files | Depends on | Lane | Status |
+|-|-|-|-|-|
+| **C4. Acceptance run** — prove the three §8 acceptance signals | `tests/acceptance/**`; shared ownership entry in `specs/tasks.md` | C1, C2, C3 | 🔴 Acceptance tests; G4/G5 RED first | Phương án A — RED |
+
+C4 has exclusive ownership of:
+
+- `tests/acceptance/**/*.test.ts`.
+- `tests/acceptance/support/c4-acceptance-harness.ts`.
+
+C4 reserves one serialized, additive-only shared-file change:
+
+- `specs/tasks.md` for this ownership block.
+
+C4 authorized corrective scope (Phương án A), exact files to be pinned after RED:
+
+- Minimal scoring/warehouse confidence-path edits required so confidence lowers when a source is missing.
+- Minimal C1 integration/wiring-path edits required so opportunities are presented ranked and the seller journey composes at the assembled-logic boundary.
+- Wiring/ranking corrective file pinned after RED: `src/integration/rank-opportunities.ts`.
+
+Follow-up (B8): Discover UI still renders mock `TREND_CARDS` and does not consume `rankOpportunities`; wiring the ranked list into the Discover screen is deferred to B8, out of C4 scope.
+
+C4 will NOT touch:
+
+- `contracts/contracts.md`, `packages/contracts/**`, or frozen C1–C8 contracts.
+- `packages/config/**`, migrations, or `.env.example`.
+- Adapter provider mapping or normalization files.
+- Any production module outside the two authorized corrective areas above.
+- Real network clients, API keys, model/Seedream/Printerval calls, HTTP servers, or port binding.
+- Package versions, build configuration, or lint configuration.
+- `npm audit fix`.
+
 ## Suggested parallelism
 After Phase A gate: B1, B2, B3, B5, B8 can start simultaneously (disjoint dirs). B4 waits on B1/B2 record shape; B6 pairs with B8 via C4 contract; B7 can start anytime after A2. Merge each via the queue.

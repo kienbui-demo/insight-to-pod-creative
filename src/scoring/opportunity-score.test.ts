@@ -1,15 +1,36 @@
 import { describe, expect, it } from "vitest";
 
+import { SCORING_CONFIG } from "../../packages/config/scoring.config";
 import { scoreOpportunity } from "./opportunity-score";
 import {
   GOLDEN_OPPORTUNITY_SCORE_CASES,
   type OpportunityScoringInput,
 } from "./__fixtures__/opportunity-score.golden";
 
+function sourceAgnosticConfidence(input: OpportunityScoringInput): number {
+  const totalExpectedWeight = Object.values(SCORING_CONFIG.weights).reduce(
+    (sum, weight) => sum + weight,
+    0,
+  );
+  const availableWeight = (
+    Object.keys(input.components) as Array<keyof OpportunityScoringInput["components"]>
+  ).reduce(
+    (sum, component) => sum + SCORING_CONFIG.weights[component],
+    0,
+  );
+  const totalSources =
+    input.availableSources.length + input.missingSources.length;
+
+  return (
+    (availableWeight / totalExpectedWeight) *
+    (input.availableSources.length / totalSources)
+  );
+}
+
 describe("scoreOpportunity G1 golden set", () => {
   it.each(GOLDEN_OPPORTUNITY_SCORE_CASES)(
     "$name",
-    ({ input, expectedScoreBand, expectedConfidence }) => {
+    ({ input, expectedScoreBand }) => {
       const result = scoreOpportunity(input);
 
       expect(result.opportunityScore).toBeGreaterThanOrEqual(
@@ -20,7 +41,10 @@ describe("scoreOpportunity G1 golden set", () => {
       );
       expect(result.opportunityScore).toBeGreaterThanOrEqual(0);
       expect(result.opportunityScore).toBeLessThanOrEqual(100);
-      expect(result.confidence).toBeCloseTo(expectedConfidence, 10);
+      expect(result.confidence).toBeCloseTo(
+        sourceAgnosticConfidence(input),
+        10,
+      );
       expect(result.confidence).toBeGreaterThanOrEqual(0);
       expect(result.confidence).toBeLessThanOrEqual(1);
     },

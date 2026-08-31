@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { SCORING_CONFIG } from "../../../packages/config";
 import type { CrawlSource, TrendCard } from "../../../packages/contracts";
-import {
-  PRIORITY_SOURCE_CONFIDENCE_MULTIPLIER,
-  scoreOpportunity,
-} from "../../scoring/opportunity-score";
+import { scoreOpportunity } from "../../scoring/opportunity-score";
 import {
   ALL_CRAWL_SOURCES,
   RECORDS_BY_SOURCE,
@@ -127,14 +124,21 @@ describe("buildTrendCard G5 degrade gracefully", () => {
       SCORING_CONFIG.weights.demand +
       SCORING_CONFIG.weights.earlyCulture +
       SCORING_CONFIG.weights.competitionInverse;
+    const totalExpectedWeight = Object.values(SCORING_CONFIG.weights).reduce(
+      (sum, weight) => sum + weight,
+      0,
+    );
+    const totalSources =
+      context.availableSources.length + context.missingSources.length;
+    const expectedConfidence =
+      (availableComponentWeight / totalExpectedWeight) *
+      (context.availableSources.length / totalSources);
 
     expect(card.missingSources).toContain("meta_ads");
     expect(context.components.provenIntent).toBeUndefined();
     expect(card.opportunityScore).toBe(b3Result.opportunityScore);
     expect(card.confidence).toBe(b3Result.confidence);
-    expect(card.confidence).toBeCloseTo(
-      availableComponentWeight * PRIORITY_SOURCE_CONFIDENCE_MULTIPLIER,
-    );
+    expect(card.confidence).toBeCloseTo(expectedConfidence);
     expect(card.confidence).toBeLessThan(availableComponentWeight);
   });
 
