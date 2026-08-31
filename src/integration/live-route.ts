@@ -2,6 +2,9 @@ import type {
   CreditAction,
   CreditDebitRequest,
   CreditDebitResult,
+  LiveDeliveryPath,
+  LiveRequestKind,
+  MetricSink,
   UiEvent,
 } from "../../packages/contracts";
 import { encodeSseEvent } from "../bff/sse-encoder";
@@ -12,6 +15,8 @@ import type {
   BffResult,
   TrendCardLookupPort,
 } from "../bff/types";
+import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
+import { SafeMetricSink } from "../monitoring/safe-metric-sink";
 
 interface CreditGatePort {
   debit(request: CreditDebitRequest): Promise<CreditDebitResult>;
@@ -118,11 +123,40 @@ const MISS_LOOKUP: TrendCardLookupPort = {
   },
 };
 
+function monitoringRequestKind(kind: BffRequest["kind"]): LiveRequestKind {
+  switch (kind) {
+    case "trend-card":
+      return "trend_card";
+    case "generate-design":
+      return "generate_design";
+    case "deep-dive":
+      return "deep_dive";
+  }
+}
+
 export function createLivePostHandler(
   dependencies: MonetizedLiveDependencies,
 ) {
+  const metricSink: MetricSink = new SafeMetricSink(
+    dependencies.metricSink ?? NOOP_METRIC_SINK,
+  );
+
   return async function post(request: Request): Promise<Response> {
     const body = parseBody(await request.json(), request.url);
+    const requestKind = monitoringRequestKind(body.request.kind);
+    const recordRequest = (
+      deliveryPath: LiveDeliveryPath,
+      outcome: "success" | "error" | "cancelled",
+    ): void => {
+      metricSink.record({
+        name: "ptv_live_request_total",
+        kind: "counter",
+        value: 1,
+        labels: { requestKind, deliveryPath, outcome },
+        observedAt: new Date().toISOString(),
+      });
+    };
+    const instrumentedDependencies = { ...dependencies, metricSink };
     const monetized =
       dependencies.credits !== undefined ||
       dependencies.authenticateSeller !== undefined;
@@ -139,22 +173,37 @@ export function createLivePostHandler(
       signal: request.signal,
     };
     if (!monetized) {
-      return resultResponse(
-        await handleBffRequest(body.request, context, dependencies),
-        body.runId,
-      );
+      try {
+        const result = await handleBffRequest(
+          body.request,
+          context,
+          instrumentedDependencies,
+        );
+        recordRequest(
+          result.kind === "card" ? "cache_hit" : "managed_agent",
+          "success",
+        );
+        return resultResponse(result, body.runId);
+      } catch (error) {
+        recordRequest("managed_agent", "error");
+        throw error;
+      }
     }
 
-    let liveDependencies: BffDependencies = dependencies;
+    let liveDependencies: BffDependencies = instrumentedDependencies;
     if (body.request.kind === "trend-card") {
       const lookup = await dependencies.lookup.lookup(body.request.crawl);
       if (lookup.kind === "hit") {
+        recordRequest("cache_hit", "success");
         return resultResponse(
           { kind: "card", card: lookup.card },
           body.runId,
         );
       }
-      liveDependencies = { ...dependencies, lookup: MISS_LOOKUP };
+      liveDependencies = {
+        ...instrumentedDependencies,
+        lookup: MISS_LOOKUP,
+      };
     }
 
     const meteredRequest = body.request as MeteredBffRequest;
@@ -178,14 +227,24 @@ export function createLivePostHandler(
     });
     if (!debit.ok) {
       if ("decision" in debit) {
+        recordRequest("credit_rejected", "error");
         return jsonError(debit.error, 402);
       }
+      recordRequest("credit_conflict", "error");
       return jsonError(debit.error, 409);
     }
 
-    return resultResponse(
-      await handleBffRequest(body.request, context, liveDependencies),
-      body.runId,
-    );
+    try {
+      const result = await handleBffRequest(
+        body.request,
+        context,
+        liveDependencies,
+      );
+      recordRequest("managed_agent", "success");
+      return resultResponse(result, body.runId);
+    } catch (error) {
+      recordRequest("managed_agent", "error");
+      throw error;
+    }
   };
 }

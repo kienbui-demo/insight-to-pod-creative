@@ -34,6 +34,7 @@ export async function handleBffRequest(
       live,
       signal: context.signal,
       onCancel: (reason) => run.cancel?.(reason),
+      metricSink: dependencies.metricSink,
     }),
   };
 }

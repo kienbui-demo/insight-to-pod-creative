@@ -1,10 +1,13 @@
 import type {
+  MetricSink,
   ProvisionalPrintervalPublishRequest,
   ProvisionalPrintervalPublishResponse,
   Publication,
   PublishDesignRequest,
   PublishDesignResult,
 } from "../../packages/contracts";
+import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
+import { SafeMetricSink } from "../monitoring/safe-metric-sink";
 
 type PublicationConflictResult = Extract<
   PublishDesignResult,
@@ -36,9 +39,24 @@ interface CreatePublishServiceOptions {
   // Publishing is unmetered; these guard ports must never be invoked.
   credits: { debit(...args: never[]): Promise<unknown> };
   managedAgent: { open(...args: never[]): Promise<unknown> };
+  metricSink?: MetricSink;
 }
 
 export function createPublishService(options: CreatePublishServiceOptions) {
+  const metricSink = new SafeMetricSink(
+    options.metricSink ?? NOOP_METRIC_SINK,
+  );
+
+  const recordPublish = (outcome: "success" | "error"): void => {
+    metricSink.record({
+      name: "ptv_infra_operation_total",
+      kind: "counter",
+      value: 1,
+      labels: { component: "printerval", operation: "publish", outcome },
+      observedAt: new Date().toISOString(),
+    });
+  };
+
   async function publish(
     request: PublishDesignRequest,
   ): Promise<PublishDesignResult> {
@@ -50,11 +68,18 @@ export function createPublishService(options: CreatePublishServiceOptions) {
       return reservation.error;
     }
 
-    const response = await options.publisher.publish({
-      projectId: request.projectId,
-      idempotencyKey: request.idempotencyKey,
-      design: request.design,
-    });
+    let response: ProvisionalPrintervalPublishResponse;
+    try {
+      response = await options.publisher.publish({
+        projectId: request.projectId,
+        idempotencyKey: request.idempotencyKey,
+        design: request.design,
+      });
+      recordPublish("success");
+    } catch (error) {
+      recordPublish("error");
+      throw error;
+    }
     return options.repository.saveProviderResult(
       reservation.publication,
       response,

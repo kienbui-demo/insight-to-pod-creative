@@ -1,6 +1,7 @@
 import type {
   CrawlRequest,
   CrawlSource,
+  MetricSink,
   TrendCard,
 } from "../../packages/contracts";
 
@@ -59,6 +60,7 @@ export interface LiveSessionPort {
 export interface BffDependencies {
   lookup: TrendCardLookupPort;
   liveSessions: LiveSessionPort;
+  metricSink?: MetricSink;
 }
 
 export type BffResult =
