@@ -7,7 +7,7 @@ import { Badge } from "../components/ui-primitives";
 import { LiveTheater } from "../live-theater/live-theater";
 import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
 import { TREND_CARDS } from "../mocks/trend-cards";
-import { TrendCardTile } from "../trends/trend-card-tile";
+import { TrendCardGrid } from "../trends/trend-card-grid";
 
 const suggestions = ["Halloween", "Christmas", "Winter gifting", "US", "DE"];
 
@@ -70,11 +70,7 @@ export function DiscoverScreen() {
           </div>
           <p className="text-sm text-slate-500">Mock warehouse snapshot</p>
         </div>
-        <div className="mt-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {TREND_CARDS.map((card) => (
-            <TrendCardTile card={card} key={card.id} />
-          ))}
-        </div>
+        <TrendCardGrid cards={TREND_CARDS} />
       </section>
     </AppShell>
   );
