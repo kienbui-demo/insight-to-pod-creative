@@ -1,4 +1,10 @@
-import type { TrendCard } from "../../packages/contracts";
+import type {
+  MetricSink,
+  PostgresOperation,
+  TrendCard,
+} from "../../packages/contracts";
+import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
+import { SafeMetricSink } from "../monitoring/safe-metric-sink";
 import type { CacheKey, SimilarityMatch } from "./cache-types";
 import type { TrendCardRepository } from "./trend-card-repository";
 
@@ -78,35 +84,70 @@ function mapTrendCard(row: TrendCardRow): TrendCard {
 }
 
 export class PostgresTrendCardRepository implements TrendCardRepository {
+  private readonly metricSink: MetricSink;
+
   constructor(
     private readonly executor: QueryExecutor,
     private readonly embeddings: EmbeddingProvider,
-  ) {}
+    metricSink: MetricSink = NOOP_METRIC_SINK,
+  ) {
+    this.metricSink = new SafeMetricSink(metricSink);
+  }
+
+  private recordOperation(
+    operation: PostgresOperation,
+    outcome: "success" | "error",
+  ): void {
+    this.metricSink.record({
+      name: "ptv_infra_operation_total",
+      kind: "counter",
+      value: 1,
+      labels: { component: "postgres", operation, outcome },
+      observedAt: new Date().toISOString(),
+    });
+  }
 
   async findExact(key: CacheKey): Promise<TrendCard | null> {
-    const result = await this.executor.query<TrendCardRow>(
-      `SELECT ${CARD_COLUMNS}
+    let result: QueryResult<TrendCardRow>;
+    try {
+      result = await this.executor.query<TrendCardRow>(
+        `SELECT ${CARD_COLUMNS}
        FROM trend_cards
        WHERE market = $1
          AND lower(btrim(seed)) = $2
          AND product_type IS NOT DISTINCT FROM $3
        ORDER BY updated_at DESC
        LIMIT 1`,
-      [
-        key.market,
-        key.seed.trim().toLowerCase(),
-        key.productType ?? null,
-      ],
-    );
+        [
+          key.market,
+          key.seed.trim().toLowerCase(),
+          key.productType ?? null,
+        ],
+      );
+      this.recordOperation("trend_card_exact_query", "success");
+    } catch (error) {
+      this.recordOperation("trend_card_exact_query", "error");
+      throw error;
+    }
 
     return result.rows[0] ? mapTrendCard(result.rows[0]) : null;
   }
 
   async findSimilar(key: CacheKey): Promise<SimilarityMatch | null> {
     const normalizedSeed = key.seed.trim().toLowerCase();
-    const embedding = await this.embeddings.embed(normalizedSeed);
-    const result = await this.executor.query<SimilarTrendCardRow>(
-      `SELECT ${CARD_COLUMNS},
+    let embedding: readonly number[];
+    try {
+      embedding = await this.embeddings.embed(normalizedSeed);
+      this.recordOperation("seed_embedding", "success");
+    } catch (error) {
+      this.recordOperation("seed_embedding", "error");
+      throw error;
+    }
+
+    let result: QueryResult<SimilarTrendCardRow>;
+    try {
+      result = await this.executor.query<SimilarTrendCardRow>(
+        `SELECT ${CARD_COLUMNS},
               1 - (embedding <=> $3::vector) AS similarity
        FROM trend_cards
        WHERE market = $1
@@ -114,8 +155,13 @@ export class PostgresTrendCardRepository implements TrendCardRepository {
          AND embedding IS NOT NULL
        ORDER BY embedding <=> $3::vector ASC
        LIMIT 1`,
-      [key.market, key.productType ?? null, JSON.stringify(embedding)],
-    );
+        [key.market, key.productType ?? null, JSON.stringify(embedding)],
+      );
+      this.recordOperation("trend_card_semantic_query", "success");
+    } catch (error) {
+      this.recordOperation("trend_card_semantic_query", "error");
+      throw error;
+    }
     const row = result.rows[0];
 
     return row

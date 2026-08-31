@@ -2,6 +2,7 @@ import type {
   CanonicalRecord,
   CrawlRequest,
   CrawlSource,
+  MetricSink,
   SourceAdapter,
   TrendCard,
 } from "../../packages/contracts";
@@ -65,4 +66,5 @@ export interface WarehouseBuilderDependencies {
   recommendation: RecommendationPort;
   clock: Clock;
   logger: WarehouseLogger;
+  metricSink?: MetricSink;
 }

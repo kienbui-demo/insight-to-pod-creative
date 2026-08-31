@@ -52,5 +52,34 @@ C2 owns these shared-file changes for the duration of the serial Phase C feature
 - C2 does not own a real `app/api/live/route.ts` composition root and does not persist generated designs into `seller_projects`.
 - Frozen C3 `TrendCard` and C4 `UiEvent` contracts are excluded from C2 changes.
 
+### C3 ownership and touched-files map
+
+| Feature | Owner dir(s) / shared files | Depends on | Lane | Status |
+|-|-|-|-|-|
+| **C3. Monitoring** — infrastructure health, crawl success, and cost | `src/monitoring/**`, `src/monitoring/__tests__/**`, `packages/contracts/monitoring.ts`, `packages/config/monitoring.config.ts`; shared C3 files listed below | C1, C2 (C7) | 🔴 Full TDD after C8 freeze; G3/G4/G5 coverage | Contract freeze in review |
+
+C3 has exclusive ownership of:
+
+- `src/monitoring/**` and `src/monitoring/__tests__/**`.
+- `src/**/__tests__/*.c8.test.ts` (C3-owned, additive new files only).
+- `packages/contracts/monitoring.ts` and `packages/config/monitoring.config.ts`.
+
+C3 reserves these shared files for serialized, additive-only changes:
+
+- Ownership and additive contract/export files: `specs/tasks.md`, `contracts/contracts.md`, `packages/contracts/index.ts`, and `packages/config/index.ts`.
+- Existing runtime instrumentation points: `src/warehouse/types.ts`, `src/warehouse/trend-card-builder.ts`, `src/agent/modelark-managed-agent-client.ts`, `src/agent/modelark-live-session.ts`, `src/bff/types.ts`, `src/bff/router.ts`, `src/bff/sse-stream.ts`, `src/integration/live-route.ts`, `src/storage/postgres-trend-card-repository.ts`, `src/monetization/credit-service.ts`, and `src/monetization/publish-service.ts`.
+- Each existing runtime shared-file edit is limited to adding a single `metricSink.record(...)` call-site, with no reordering, payload change, or behavior change.
+
+C3 will NOT touch:
+
+- Frozen C1–C7 types or semantics, including C4 events and C7 ledger/refund behavior.
+- Existing migrations or any new monitoring migration.
+- Adapter provider mapping or normalization files.
+- Scoring, cache-decision, UI, or app-screen code.
+- `.env.example`, Next.js/package versions, or lint/build configuration.
+- A real composition root, monitoring backend, listener, endpoint, timer, or dashboard.
+- Real Printerval integration or ModelArk/Seedream invocation behavior.
+- `npm audit fix`.
+
 ## Suggested parallelism
 After Phase A gate: B1, B2, B3, B5, B8 can start simultaneously (disjoint dirs). B4 waits on B1/B2 record shape; B6 pairs with B8 via C4 contract; B7 can start anytime after A2. Merge each via the queue.

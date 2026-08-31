@@ -1,6 +1,13 @@
-import type { RunSessionRepository } from "../../packages/contracts";
+import type {
+  InfrastructureOperationOutcome,
+  MetricSink,
+  ModelArkOperation,
+  RunSessionRepository,
+} from "../../packages/contracts";
 import type { BffRequest } from "../bff/types";
 import { resolveRunSession } from "../integration/run-session-coordinator";
+import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
+import { SafeMetricSink } from "../monitoring/safe-metric-sink";
 import type {
   GenerateDesignImageInput,
   GenerateDesignImageResult,
@@ -22,6 +29,52 @@ interface ModelArkManagedAgentClientOptions {
   environmentId: string;
   runSessions: RunSessionRepository;
   fetch?: FetchPort;
+  metricSink?: MetricSink;
+  monitoringClock?: MonitoringClock;
+}
+
+interface MonitoringClock {
+  nowIso(): string;
+  nowMs(): number;
+}
+
+const REAL_MONITORING_CLOCK: MonitoringClock = {
+  nowIso: () => new Date().toISOString(),
+  nowMs: () => performance.now(),
+};
+
+function operationOutcome(
+  error: unknown,
+  signal?: AbortSignal,
+): InfrastructureOperationOutcome {
+  return signal?.aborted ||
+    (error instanceof DOMException && error.name === "AbortError")
+    ? "cancelled"
+    : "error";
+}
+
+function recordOperation(
+  metricSink: MetricSink,
+  clock: MonitoringClock,
+  operation: ModelArkOperation,
+  outcome: InfrastructureOperationOutcome,
+  startedAt: number,
+): void {
+  const observedAt = clock.nowIso();
+  metricSink.record({
+    name: "ptv_infra_operation_total",
+    kind: "counter",
+    value: 1,
+    labels: { component: "modelark", operation, outcome },
+    observedAt,
+  });
+  metricSink.record({
+    name: "ptv_infra_operation_duration_ms",
+    kind: "distribution",
+    value: Math.max(0, clock.nowMs() - startedAt),
+    labels: { component: "modelark", operation, outcome },
+    observedAt,
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -209,23 +262,55 @@ class ModelArkManagedAgentSession implements ManagedAgentSessionPort {
     private readonly baseUrl: string,
     private readonly apiKey: string,
     private readonly fetchPort: FetchPort,
+    private readonly metricSink: MetricSink,
+    private readonly monitoringClock: MonitoringClock,
   ) {}
 
+  private async measured<T>(
+    operation: ModelArkOperation,
+    task: () => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const startedAt = this.monitoringClock.nowMs();
+    try {
+      const result = await task();
+      recordOperation(
+        this.metricSink,
+        this.monitoringClock,
+        operation,
+        "success",
+        startedAt,
+      );
+      return result;
+    } catch (error) {
+      recordOperation(
+        this.metricSink,
+        this.monitoringClock,
+        operation,
+        operationOutcome(error, signal),
+        startedAt,
+      );
+      throw error;
+    }
+  }
+
   async history(): Promise<readonly ManagedAgentEvent[]> {
-    const response = await expectOk(
-      await this.fetchPort(sessionUrl(this.baseUrl, this.sessionId, "/events"), {
-        headers: { authorization: `Bearer ${this.apiKey}` },
-      }),
-    );
-    const payload = (await response.json()) as unknown;
-    const events = Array.isArray(payload)
-      ? payload
-      : isRecord(payload) && Array.isArray(payload.events)
-        ? payload.events
-        : isRecord(payload) && Array.isArray(payload.items)
-          ? payload.items
-          : [];
-    return events.map(decodeModelArkManagedAgentEvent);
+    return this.measured("history_read", async () => {
+      const response = await expectOk(
+        await this.fetchPort(sessionUrl(this.baseUrl, this.sessionId, "/events"), {
+          headers: { authorization: `Bearer ${this.apiKey}` },
+        }),
+      );
+      const payload = (await response.json()) as unknown;
+      const events = Array.isArray(payload)
+        ? payload
+        : isRecord(payload) && Array.isArray(payload.events)
+          ? payload.events
+          : isRecord(payload) && Array.isArray(payload.items)
+            ? payload.items
+            : [];
+      return events.map(decodeModelArkManagedAgentEvent);
+    });
   }
 
   openEvents(signal?: AbortSignal): AsyncIterable<ManagedAgentEvent> {
@@ -240,91 +325,138 @@ class ModelArkManagedAgentSession implements ManagedAgentSessionPort {
       },
     ).then(expectOk);
 
+    const metricSink = this.metricSink;
+    const clock = this.monitoringClock;
     return (async function* () {
-      yield* readManagedAgentSse(await response);
+      const startedAt = clock.nowMs();
+      try {
+        yield* readManagedAgentSse(await response);
+        recordOperation(metricSink, clock, "event_stream", "success", startedAt);
+      } catch (error) {
+        recordOperation(
+          metricSink,
+          clock,
+          "event_stream",
+          operationOutcome(error, signal),
+          startedAt,
+        );
+        throw error;
+      }
     })();
   }
 
   async send(request: BffRequest): Promise<void> {
-    await expectOk(
-      await this.fetchPort(sessionUrl(this.baseUrl, this.sessionId, "/events"), {
-        method: "POST",
-        headers: jsonHeaders(this.apiKey),
-        body: JSON.stringify({
-          events: [
-            {
-              type: "user.message",
-              content: [{ type: "text", text: JSON.stringify(request) }],
-            },
-          ],
+    await this.measured("send", async () => {
+      await expectOk(
+        await this.fetchPort(sessionUrl(this.baseUrl, this.sessionId, "/events"), {
+          method: "POST",
+          headers: jsonHeaders(this.apiKey),
+          body: JSON.stringify({
+            events: [
+              {
+                type: "user.message",
+                content: [{ type: "text", text: JSON.stringify(request) }],
+              },
+            ],
+          }),
         }),
-      }),
-    );
+      );
+    });
   }
 
   async interrupt(): Promise<void> {
-    await expectOk(
-      await this.fetchPort(sessionUrl(this.baseUrl, this.sessionId, "/events"), {
-        method: "POST",
-        headers: jsonHeaders(this.apiKey),
-        body: JSON.stringify({ events: [{ type: "user.interrupt" }] }),
-      }),
-    );
+    await this.measured("interrupt", async () => {
+      await expectOk(
+        await this.fetchPort(sessionUrl(this.baseUrl, this.sessionId, "/events"), {
+          method: "POST",
+          headers: jsonHeaders(this.apiKey),
+          body: JSON.stringify({ events: [{ type: "user.interrupt" }] }),
+        }),
+      );
+    });
   }
 
   async submitCustomToolResult(event: ManagedAgentEvent): Promise<void> {
-    await expectOk(
-      await this.fetchPort(sessionUrl(this.baseUrl, this.sessionId, "/events"), {
-        method: "POST",
-        headers: jsonHeaders(this.apiKey),
-        body: JSON.stringify({ events: [event] }),
-      }),
-    );
+    await this.measured("submit_tool_result", async () => {
+      await expectOk(
+        await this.fetchPort(sessionUrl(this.baseUrl, this.sessionId, "/events"), {
+          method: "POST",
+          headers: jsonHeaders(this.apiKey),
+          body: JSON.stringify({ events: [event] }),
+        }),
+      );
+    });
   }
 }
 
 export class ModelArkManagedAgentClient implements ManagedAgentClientPort {
   private readonly fetchPort: FetchPort;
+  private readonly metricSink: MetricSink;
+  private readonly monitoringClock: MonitoringClock;
 
   constructor(private readonly options: ModelArkManagedAgentClientOptions) {
     this.fetchPort = options.fetch ?? globalThis.fetch.bind(globalThis);
+    this.metricSink = new SafeMetricSink(
+      options.metricSink ?? NOOP_METRIC_SINK,
+    );
+    this.monitoringClock = options.monitoringClock ?? REAL_MONITORING_CLOCK;
   }
 
   async attachOrCreate(runId: string): Promise<ManagedAgentSessionPort> {
-    const mapping = await resolveRunSession({
-      runId,
-      repository: this.options.runSessions,
-      createMaSession: async () => {
-        const response = await expectOk(
-          await this.fetchPort(
-            `${this.options.baseUrl.replace(/\/$/, "")}/api/v3/sessions`,
-            {
-              method: "POST",
-              headers: jsonHeaders(this.options.apiKey),
-              body: JSON.stringify({
-                agent: {
-                  type: "agent",
-                  id: this.options.agentId,
-                  version: this.options.agentVersion,
-                },
-                environment_id: this.options.environmentId,
-              }),
-            },
-          ),
-        );
-        const session = (await response.json()) as unknown;
-        if (!isRecord(session) || !isString(session.id)) {
-          throw new Error("ModelArk session response has no id");
-        }
-        return session.id;
-      },
-    });
-
-    return new ModelArkManagedAgentSession(
-      mapping.maSessionId,
-      this.options.baseUrl,
-      this.options.apiKey,
-      this.fetchPort,
-    );
+    const startedAt = this.monitoringClock.nowMs();
+    try {
+      const mapping = await resolveRunSession({
+        runId,
+        repository: this.options.runSessions,
+        createMaSession: async () => {
+          const response = await expectOk(
+            await this.fetchPort(
+              `${this.options.baseUrl.replace(/\/$/, "")}/api/v3/sessions`,
+              {
+                method: "POST",
+                headers: jsonHeaders(this.options.apiKey),
+                body: JSON.stringify({
+                  agent: {
+                    type: "agent",
+                    id: this.options.agentId,
+                    version: this.options.agentVersion,
+                  },
+                  environment_id: this.options.environmentId,
+                }),
+              },
+            ),
+          );
+          const session = (await response.json()) as unknown;
+          if (!isRecord(session) || !isString(session.id)) {
+            throw new Error("ModelArk session response has no id");
+          }
+          return session.id;
+        },
+      });
+      recordOperation(
+        this.metricSink,
+        this.monitoringClock,
+        "session_attach_or_create",
+        "success",
+        startedAt,
+      );
+      return new ModelArkManagedAgentSession(
+        mapping.maSessionId,
+        this.options.baseUrl,
+        this.options.apiKey,
+        this.fetchPort,
+        this.metricSink,
+        this.monitoringClock,
+      );
+    } catch (error) {
+      recordOperation(
+        this.metricSink,
+        this.monitoringClock,
+        "session_attach_or_create",
+        operationOutcome(error),
+        startedAt,
+      );
+      throw error;
+    }
   }
 }

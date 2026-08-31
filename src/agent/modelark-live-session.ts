@@ -4,6 +4,9 @@ import type {
   LiveSessionPort,
   RawMaEvent,
 } from "../bff/types";
+import type { CrawlSource, MetricSink } from "../../packages/contracts";
+import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
+import { SafeMetricSink } from "../monitoring/safe-metric-sink";
 import { mapManagedAgentEvents } from "./ma-event-mapper";
 import type {
   ManagedAgentClientPort,
@@ -16,6 +19,7 @@ interface CreateModelArkLiveSessionPortOptions {
   client: ManagedAgentClientPort;
   seedream: SeedreamImagePort;
   maxImagesPerAction: 1;
+  metricSink?: MetricSink;
 }
 
 class AsyncEventQueue<T> implements AsyncIterable<T> {
@@ -92,10 +96,12 @@ class AsyncEventQueue<T> implements AsyncIterable<T> {
 
 class ModelArkLiveRun implements LiveRun {
   private readonly output = new AsyncEventQueue<RawMaEvent>();
+  private readonly failedSources = new Set<CrawlSource>();
 
   constructor(
     private readonly session: ManagedAgentSessionPort,
     rawEvents: AsyncIterable<ManagedAgentEvent>,
+    private readonly metricSink: MetricSink,
   ) {
     void this.pump(rawEvents);
   }
@@ -128,6 +134,58 @@ class ModelArkLiveRun implements LiveRun {
   private async pump(events: AsyncIterable<ManagedAgentEvent>): Promise<void> {
     try {
       for await (const event of events) {
+        if (event.type === "session.error" && event.error.source !== undefined) {
+          this.failedSources.add(event.error.source);
+        }
+        if (event.type === "agent.output") {
+          const card = event.output.card;
+          for (const source of card.availableSources) {
+            this.metricSink.record({
+              name: "ptv_crawl_source_run_total",
+              kind: "counter",
+              value: 1,
+              labels: {
+                source,
+                mode: "live",
+                outcome: "success",
+                stage: "final_card",
+              },
+              observedAt: new Date().toISOString(),
+              observationId: `live-crawl:${event.id}:${source}`,
+            });
+          }
+          for (const source of card.missingSources) {
+            this.metricSink.record({
+              name: "ptv_crawl_source_run_total",
+              kind: "counter",
+              value: 1,
+              labels: {
+                source,
+                mode: "live",
+                outcome: this.failedSources.has(source) ? "failure" : "empty",
+                stage: "final_card",
+              },
+              observedAt: new Date().toISOString(),
+              observationId: `live-crawl:${event.id}:${source}`,
+            });
+          }
+          this.metricSink.record({
+            name: "ptv_trend_card_build_total",
+            kind: "counter",
+            value: 1,
+            labels: {
+              mode: "live",
+              outcome:
+                card.availableSources.length === 0
+                  ? "zero_evidence"
+                  : card.missingSources.length === 0
+                    ? "complete"
+                    : "degraded",
+            },
+            observedAt: new Date().toISOString(),
+            observationId: `live-card:${event.id}`,
+          });
+        }
         if (
           event.type === "session.status_idle" &&
           event.stop_reason.type === "end_turn"
@@ -150,11 +208,14 @@ class ModelArkLiveRun implements LiveRun {
 export function createModelArkLiveSessionPort(
   options: CreateModelArkLiveSessionPortOptions,
 ): LiveSessionPort {
+  const metricSink = new SafeMetricSink(
+    options.metricSink ?? NOOP_METRIC_SINK,
+  );
   return {
     async create(runId: string): Promise<LiveRun> {
       const session = await options.client.attachOrCreate(runId);
       const rawEvents = session.openEvents();
-      return new ModelArkLiveRun(session, rawEvents);
+      return new ModelArkLiveRun(session, rawEvents, metricSink);
     },
   };
 }

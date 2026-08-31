@@ -1,4 +1,12 @@
-import type { UiEvent } from "../../packages/contracts";
+import type {
+  MetricSink,
+  MonitoringSseEventType,
+  SseEventDisposition,
+  SseStreamOutcome,
+  UiEvent,
+} from "../../packages/contracts";
+import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
+import { SafeMetricSink } from "../monitoring/safe-metric-sink";
 import { encodeSseEvent } from "./sse-encoder";
 import { translateRawMaEvent } from "./sse-translator";
 import type { RawMaEvent } from "./types";
@@ -9,6 +17,7 @@ interface SseStreamOptions {
   live: AsyncIterable<RawMaEvent>;
   signal?: AbortSignal;
   onCancel?(reason?: unknown): Promise<void> | void;
+  metricSink?: MetricSink;
 }
 
 function errorMessage(error: unknown): string {
@@ -18,11 +27,42 @@ function errorMessage(error: unknown): string {
 export function createSseStream(
   options: SseStreamOptions,
 ): ReadableStream<Uint8Array> {
+  const metricSink = new SafeMetricSink(
+    options.metricSink ?? NOOP_METRIC_SINK,
+  );
   let iterator: AsyncIterator<RawMaEvent> | undefined;
   let stopped = false;
   let terminalEmitted = false;
   let iteratorClosed = false;
   let clientCancelled = false;
+  let streamOutcomeRecorded = false;
+
+  const recordEvent = (
+    eventType: MonitoringSseEventType,
+    disposition: SseEventDisposition,
+  ): void => {
+    metricSink.record({
+      name: "ptv_sse_event_total",
+      kind: "counter",
+      value: 1,
+      labels: { eventType, disposition },
+      observedAt: new Date().toISOString(),
+    });
+  };
+
+  const recordStreamOutcome = (outcome: SseStreamOutcome): void => {
+    if (streamOutcomeRecorded) {
+      return;
+    }
+    streamOutcomeRecorded = true;
+    metricSink.record({
+      name: "ptv_sse_stream_total",
+      kind: "counter",
+      value: 1,
+      labels: { outcome },
+      observedAt: new Date().toISOString(),
+    });
+  };
 
   async function closeIterator(): Promise<void> {
     if (iteratorClosed) {
@@ -37,15 +77,23 @@ export function createSseStream(
       const seen = new Set<string>();
 
       const enqueue = (event: UiEvent): boolean => {
-        if (stopped || seen.has(event.id)) {
+        if (stopped) {
+          return false;
+        }
+        if (seen.has(event.id)) {
+          recordEvent(event.type, "deduplicated");
           return false;
         }
         seen.add(event.id);
         controller.enqueue(encodeSseEvent(event));
+        recordEvent(event.type, "emitted");
         return true;
       };
 
-      const terminate = (event?: UiEvent): void => {
+      const terminate = (
+        outcome: Extract<SseStreamOutcome, "done" | "fatal_error">,
+        event?: UiEvent,
+      ): void => {
         if (terminalEmitted || stopped) {
           return;
         }
@@ -55,6 +103,7 @@ export function createSseStream(
         }
         stopped = true;
         controller.close();
+        recordStreamOutcome(outcome);
       };
 
       const abort = (): void => {
@@ -63,6 +112,7 @@ export function createSseStream(
         }
         stopped = true;
         void closeIterator();
+        recordStreamOutcome("cancelled");
         if (!clientCancelled) {
           controller.close();
         }
@@ -82,12 +132,13 @@ export function createSseStream(
               return;
             }
             const event = translateRawMaEvent(raw);
-            if (event === undefined || seen.has(event.id)) {
+            if (event === undefined) {
+              recordEvent("unmapped", "ignored_unmapped");
               continue;
             }
             enqueue(event);
             if (event.type === "error" && !event.recoverable) {
-              terminate();
+              terminate("fatal_error");
               return;
             }
           }
@@ -96,18 +147,22 @@ export function createSseStream(
           while (!stopped) {
             const next = await iterator.next();
             if (next.done) {
-              terminate({ id: `${options.runId}:done`, type: "done" });
+              terminate("done", {
+                id: `${options.runId}:done`,
+                type: "done",
+              });
               return;
             }
 
             const event = translateRawMaEvent(next.value);
-            if (event === undefined || seen.has(event.id)) {
+            if (event === undefined) {
+              recordEvent("unmapped", "ignored_unmapped");
               continue;
             }
             enqueue(event);
             if (event.type === "error" && !event.recoverable) {
               await closeIterator();
-              terminate();
+              terminate("fatal_error");
               return;
             }
           }
@@ -115,12 +170,15 @@ export function createSseStream(
           if (stopped) {
             return;
           }
-          terminate({
-            id: `${options.runId}:error`,
-            type: "error",
-            recoverable: false,
-            message: errorMessage(error),
-          });
+          terminate(
+            "fatal_error",
+            {
+              id: `${options.runId}:error`,
+              type: "error",
+              recoverable: false,
+              message: errorMessage(error),
+            },
+          );
         } finally {
           options.signal?.removeEventListener("abort", abort);
         }
@@ -129,6 +187,7 @@ export function createSseStream(
     async cancel(reason) {
       clientCancelled = true;
       stopped = true;
+      recordStreamOutcome("cancelled");
       await closeIterator();
       await options.onCancel?.(reason);
     },

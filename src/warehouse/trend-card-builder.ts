@@ -4,8 +4,12 @@ import type {
   CanonicalRecord,
   CrawlRequest,
   CrawlSource,
+  CrawlStage,
+  MetricSink,
   TrendCard,
 } from "../../packages/contracts";
+import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
+import { SafeMetricSink } from "../monitoring/safe-metric-sink";
 import { scoreOpportunity } from "../scoring/opportunity-score";
 import { ALL_CRAWL_SOURCES } from "./component-reducer";
 import type {
@@ -138,6 +142,7 @@ async function collectSourceRecords(
   input: WarehouseBuildInput,
   source: CrawlSource,
   dependencies: WarehouseBuilderDependencies,
+  metricSink: MetricSink,
 ): Promise<CanonicalRecord[]> {
   const request: CrawlRequest = {
     source,
@@ -150,71 +155,133 @@ async function collectSourceRecords(
   };
 
   const adapter = dependencies.adapters[source];
-  const providerRequest = adapter.adapt(request);
-  const providerOutput = await dependencies.transport.execute(
-    source,
-    providerRequest,
-    request,
-  );
-
-  return adapter.normalize(providerOutput);
+  let stage: CrawlStage = "adapt";
+  try {
+    const providerRequest = adapter.adapt(request);
+    stage = "execute";
+    const providerOutput = await dependencies.transport.execute(
+      source,
+      providerRequest,
+      request,
+    );
+    stage = "normalize";
+    const records = adapter.normalize(providerOutput);
+    metricSink.record({
+      name: "ptv_crawl_source_run_total",
+      kind: "counter",
+      value: 1,
+      labels: {
+        source,
+        mode: "batch",
+        outcome: records.length > 0 ? "success" : "empty",
+        stage: "final_card",
+      },
+      observedAt: dependencies.clock.nowIso(),
+    });
+    if (records.length > 0) {
+      metricSink.record({
+        name: "ptv_crawl_records_total",
+        kind: "counter",
+        value: records.length,
+        labels: { source, mode: "batch" },
+        observedAt: dependencies.clock.nowIso(),
+      });
+    }
+    return records;
+  } catch (error) {
+    metricSink.record({
+      name: "ptv_crawl_source_run_total",
+      kind: "counter",
+      value: 1,
+      labels: { source, mode: "batch", outcome: "failure", stage },
+      observedAt: dependencies.clock.nowIso(),
+    });
+    throw error;
+  }
 }
 
 export async function buildTrendCard(
   input: WarehouseBuildInput,
   dependencies: WarehouseBuilderDependencies,
 ): Promise<TrendCard> {
+  const metricSink = new SafeMetricSink(
+    dependencies.metricSink ?? NOOP_METRIC_SINK,
+  );
   const records: CanonicalRecord[] = [];
 
   for (const source of ALL_CRAWL_SOURCES) {
     try {
       records.push(
-        ...(await collectSourceRecords(input, source, dependencies)),
+        ...(await collectSourceRecords(input, source, dependencies, metricSink)),
       );
     } catch (error) {
       dependencies.logger.sourceFailure(source, error);
     }
   }
 
-  const reduction = dependencies.reducer.reduce(records);
-  const contributing = new Set(reduction.contributingSources);
-  const availableSources = ALL_CRAWL_SOURCES.filter((source) =>
-    contributing.has(source),
-  );
-  const missingSources = ALL_CRAWL_SOURCES.filter(
-    (source) => !contributing.has(source),
-  );
-  const scoring = scoreOpportunity({
-    components: reduction.components,
-    availableSources,
-    missingSources,
-  });
-  const recommendation = await dependencies.recommendation.recommend({
-    request: input,
-    records,
-    components: reduction.components,
-    availableSources,
-    missingSources,
-    ...scoring,
-  });
-  const usableRecords = records.filter((record) =>
-    contributing.has(record.source),
-  );
-
-  return {
-    id: trendCardId(input),
-    market: input.market,
-    seed: input.seed,
-    productType: input.productType,
-    opportunityScore: scoring.opportunityScore,
-    confidence: scoring.confidence,
-    availableSources,
-    missingSources,
-    trendSeries: trendSeries(usableRecords),
-    referenceImages: referenceImages(usableRecords),
-    competitors: competitors(usableRecords),
-    recommendation,
-    freshnessTier: input.freshnessTier,
-    updatedAt: dependencies.clock.nowIso(),
-  };
+  try {
+    const reduction = dependencies.reducer.reduce(records);
+    const contributing = new Set(reduction.contributingSources);
+    const availableSources = ALL_CRAWL_SOURCES.filter((source) =>
+      contributing.has(source),
+    );
+    const missingSources = ALL_CRAWL_SOURCES.filter(
+      (source) => !contributing.has(source),
+    );
+    const scoring = scoreOpportunity({
+      components: reduction.components,
+      availableSources,
+      missingSources,
+    });
+    const recommendation = await dependencies.recommendation.recommend({
+      request: input,
+      records,
+      components: reduction.components,
+      availableSources,
+      missingSources,
+      ...scoring,
+    });
+    const usableRecords = records.filter((record) =>
+      contributing.has(record.source),
+    );
+    const card: TrendCard = {
+      id: trendCardId(input),
+      market: input.market,
+      seed: input.seed,
+      productType: input.productType,
+      opportunityScore: scoring.opportunityScore,
+      confidence: scoring.confidence,
+      availableSources,
+      missingSources,
+      trendSeries: trendSeries(usableRecords),
+      referenceImages: referenceImages(usableRecords),
+      competitors: competitors(usableRecords),
+      recommendation,
+      freshnessTier: input.freshnessTier,
+      updatedAt: dependencies.clock.nowIso(),
+    };
+    const outcome =
+      availableSources.length === 0
+        ? "zero_evidence"
+        : missingSources.length === 0
+          ? "complete"
+          : "degraded";
+    metricSink.record({
+      name: "ptv_trend_card_build_total",
+      kind: "counter",
+      value: 1,
+      labels: { mode: "batch", outcome },
+      observedAt: dependencies.clock.nowIso(),
+    });
+    return card;
+  } catch (error) {
+    metricSink.record({
+      name: "ptv_trend_card_build_total",
+      kind: "counter",
+      value: 1,
+      labels: { mode: "batch", outcome: "failure" },
+      observedAt: dependencies.clock.nowIso(),
+    });
+    throw error;
+  }
 }
