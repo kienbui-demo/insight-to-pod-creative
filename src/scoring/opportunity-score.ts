@@ -1,9 +1,6 @@
 import { SCORING_CONFIG } from "../../packages/config";
 import type { CrawlSource, TrendCard } from "../../packages/contracts";
 
-// Pragmatic MVP default — G1 mandates a larger penalty for missing priority source but gives no number; candidate to move into scoring config later.
-export const PRIORITY_SOURCE_CONFIDENCE_MULTIPLIER = 0.8;
-
 export interface NormalizedOpportunityComponents {
   demand?: number;
   provenIntent?: number;
@@ -111,9 +108,14 @@ function calculateConfidence(
   availableWeight: number,
   missingSources: CrawlSource[],
 ): number {
-  return missingSources.includes("meta_ads")
-    ? availableWeight * PRIORITY_SOURCE_CONFIDENCE_MULTIPLIER
-    : availableWeight;
+  const totalExpectedWeight = Object.values(SCORING_CONFIG.weights).reduce(
+    (sum, weight) => sum + weight,
+    0,
+  );
+  const availableSourceProportion =
+    (ALL_SOURCES.length - missingSources.length) / ALL_SOURCES.length;
+
+  return (availableWeight / totalExpectedWeight) * availableSourceProportion;
 }
 
 export function scoreOpportunity(
