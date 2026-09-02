@@ -154,3 +154,62 @@ describe("provisional ModelArk custom-tool decoder", () => {
     );
   });
 });
+
+describe("provisional ModelArk idle-status decoder", () => {
+  it("accepts the existing end_turn stop reason", () => {
+    const event = {
+      id: "ma-idle-end-turn",
+      type: "session.status_idle",
+      stop_reason: { type: "end_turn" },
+    } as const;
+
+    expect(decodeModelArkManagedAgentEvent(event)).toEqual(event);
+  });
+
+  it("accepts requires_action with event ids", () => {
+    const event = {
+      id: "ma-idle-requires-action",
+      type: "session.status_idle",
+      stop_reason: {
+        type: "requires_action",
+        event_ids: ["ev-1", "ev-2"],
+      },
+    } as const;
+
+    expect(decodeModelArkManagedAgentEvent(event)).toEqual(event);
+  });
+
+  it("accepts requires_action with an empty event_ids array", () => {
+    const event = {
+      id: "ma-idle-requires-action-empty",
+      type: "session.status_idle",
+      stop_reason: { type: "requires_action", event_ids: [] },
+    } as const;
+
+    expect(decodeModelArkManagedAgentEvent(event)).toEqual(event);
+  });
+
+  it("rejects requires_action when event_ids is missing", () => {
+    const event = {
+      id: "ma-idle-requires-action-missing-event-ids",
+      type: "session.status_idle",
+      stop_reason: { type: "requires_action" },
+    };
+
+    expect(() => decodeModelArkManagedAgentEvent(event)).toThrow(
+      "Invalid provisional ModelArk event",
+    );
+  });
+
+  it("rejects requires_action when an event_ids item is not a string", () => {
+    const event = {
+      id: "ma-idle-requires-action-invalid-event-id",
+      type: "session.status_idle",
+      stop_reason: { type: "requires_action", event_ids: ["ev-1", 2] },
+    };
+
+    expect(() => decodeModelArkManagedAgentEvent(event)).toThrow(
+      "Invalid provisional ModelArk event",
+    );
+  });
+});

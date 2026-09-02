@@ -51,7 +51,9 @@ export type ManagedAgentEvent =
   | {
       id: string;
       type: "session.status_idle";
-      stop_reason: { type: "end_turn" };
+      stop_reason:
+        | { type: "end_turn" }
+        | { type: "requires_action"; event_ids: readonly string[] };
     }
   | { id: string; type: "span.model_request_start"; model: string };
 

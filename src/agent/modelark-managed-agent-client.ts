@@ -189,6 +189,14 @@ export function decodeModelArkManagedAgentEvent(
       ) {
         return value as unknown as ManagedAgentEvent;
       }
+      if (
+        isRecord(value.stop_reason) &&
+        value.stop_reason.type === "requires_action" &&
+        Array.isArray(value.stop_reason.event_ids) &&
+        value.stop_reason.event_ids.every(isString)
+      ) {
+        return value as unknown as ManagedAgentEvent;
+      }
       break;
     case "span.model_request_start":
       if (isString(value.model)) {
