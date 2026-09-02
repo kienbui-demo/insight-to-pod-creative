@@ -97,10 +97,12 @@ class AsyncEventQueue<T> implements AsyncIterable<T> {
 class ModelArkLiveRun implements LiveRun {
   private readonly output = new AsyncEventQueue<RawMaEvent>();
   private readonly failedSources = new Set<CrawlSource>();
+  private readonly toolUses = new Map<string, ManagedAgentEvent>();
 
   constructor(
     private readonly session: ManagedAgentSessionPort,
     rawEvents: AsyncIterable<ManagedAgentEvent>,
+    private readonly seedream: SeedreamImagePort,
     private readonly metricSink: MetricSink,
   ) {
     void this.pump(rawEvents);
@@ -134,6 +136,9 @@ class ModelArkLiveRun implements LiveRun {
   private async pump(events: AsyncIterable<ManagedAgentEvent>): Promise<void> {
     try {
       for await (const event of events) {
+        if (event.type === "agent.custom_tool_use") {
+          this.toolUses.set(event.id, event);
+        }
         if (event.type === "session.error" && event.error.source !== undefined) {
           this.failedSources.add(event.error.source);
         }
@@ -193,6 +198,35 @@ class ModelArkLiveRun implements LiveRun {
           this.output.close();
           return;
         }
+        if (
+          event.type === "session.status_idle" &&
+          event.stop_reason.type === "requires_action"
+        ) {
+          for (const toolUseId of event.stop_reason.event_ids) {
+            const toolUse = this.toolUses.get(toolUseId);
+            if (toolUse?.type !== "agent.custom_tool_use") {
+              continue;
+            }
+            if (toolUse.name === "crawl") {
+              // F2: fulfill crawl tool calls through the crawl transport.
+              continue;
+            }
+
+            const resultEvent = {
+              id: `${toolUseId}:result`,
+              type: "user.custom_tool_result",
+              custom_tool_use_id: toolUseId,
+              name: "generate_design_image",
+              input: toolUse.input,
+              result: await this.seedream.generate(toolUse.input),
+            } satisfies ManagedAgentEvent;
+            await this.session.submitCustomToolResult(resultEvent);
+            for (const mapped of mapManagedAgentEvents([resultEvent])) {
+              this.output.push(mapped);
+            }
+          }
+          continue;
+        }
 
         for (const mapped of mapManagedAgentEvents([event])) {
           this.output.push(mapped);
@@ -215,7 +249,12 @@ export function createModelArkLiveSessionPort(
     async create(runId: string): Promise<LiveRun> {
       const session = await options.client.attachOrCreate(runId);
       const rawEvents = session.openEvents();
-      return new ModelArkLiveRun(session, rawEvents, metricSink);
+      return new ModelArkLiveRun(
+        session,
+        rawEvents,
+        options.seedream,
+        metricSink,
+      );
     },
   };
 }
