@@ -103,13 +103,17 @@ function isGenerateDesignInput(value: unknown): value is GenerateDesignImageInpu
     isString(value.prompt) &&
     isString(value.size) &&
     (value.seed === undefined || typeof value.seed === "number") &&
-    (value.referenceImages === undefined ||
-      (Array.isArray(value.referenceImages) &&
-        value.referenceImages.every(
-          (image) =>
-            isRecord(image) &&
-            isString(image.base64) &&
-            isString(image.mimeType),
+    (value.reference_image_sources === undefined ||
+      (Array.isArray(value.reference_image_sources) &&
+        value.reference_image_sources.every(
+          (source) =>
+            isRecord(source) &&
+            (source.type === "url" ||
+              source.type === "file" ||
+              source.type === "tos") &&
+            (source.url === undefined || isString(source.url)) &&
+            (source.file_id === undefined || isString(source.file_id)) &&
+            (source.tos_uri === undefined || isString(source.tos_uri)),
         )))
   );
 }

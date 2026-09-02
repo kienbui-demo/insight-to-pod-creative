@@ -87,9 +87,9 @@ describe("G4 MA event mapper contract", () => {
         input: {
           prompt: "Blend two botanical references",
           size: "2048x2048",
-          referenceImages: [
-            { base64: "aW1hZ2UtMQ==", mimeType: "image/png" },
-            { base64: "aW1hZ2UtMg==", mimeType: "image/jpeg" },
+          reference_image_sources: [
+            { type: "url", url: "https://assets.example/botanical.png" },
+            { type: "file", file_id: "file-botanical-001" },
           ],
         },
       },

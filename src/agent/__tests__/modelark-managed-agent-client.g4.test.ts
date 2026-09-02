@@ -78,7 +78,7 @@ describe("C1 G4 provisional ModelArk event integration", () => {
 });
 
 describe("provisional ModelArk custom-tool decoder", () => {
-  it("accepts generate_design_image with a non-empty referenceImages array", () => {
+  it("accepts generate_design_image with mixed reference_image_sources", () => {
     const event = {
       id: "ma-design-with-references",
       type: "agent.custom_tool_use",
@@ -87,9 +87,9 @@ describe("provisional ModelArk custom-tool decoder", () => {
         prompt: "Blend these references into a vintage botanical print",
         size: "2048x2048",
         seed: 7319,
-        referenceImages: [
-          { base64: "aW1hZ2UtMQ==", mimeType: "image/png" },
-          { base64: "aW1hZ2UtMg==", mimeType: "image/jpeg" },
+        reference_image_sources: [
+          { type: "url", url: "https://assets.example/botanical.png" },
+          { type: "file", file_id: "file-botanical-001" },
         ],
       },
     } as const;
@@ -97,7 +97,7 @@ describe("provisional ModelArk custom-tool decoder", () => {
     expect(decodeModelArkManagedAgentEvent(event)).toEqual(event);
   });
 
-  it("accepts generate_design_image with an empty referenceImages array", () => {
+  it("accepts generate_design_image with an empty reference_image_sources array", () => {
     const event = {
       id: "ma-design-empty-references",
       type: "agent.custom_tool_use",
@@ -105,14 +105,14 @@ describe("provisional ModelArk custom-tool decoder", () => {
       input: {
         prompt: "Create a vintage botanical print",
         size: "2048x2048",
-        referenceImages: [],
+        reference_image_sources: [],
       },
     } as const;
 
     expect(decodeModelArkManagedAgentEvent(event)).toEqual(event);
   });
 
-  it("accepts generate_design_image without referenceImages", () => {
+  it("accepts generate_design_image without reference_image_sources", () => {
     const event = {
       id: "ma-design-without-references",
       type: "agent.custom_tool_use",
@@ -137,15 +137,32 @@ describe("provisional ModelArk custom-tool decoder", () => {
     expect(decodeModelArkManagedAgentEvent(event)).toEqual(event);
   });
 
-  it("rejects generate_design_image when a reference image lacks mimeType", () => {
+  it("rejects generate_design_image when a reference source type is invalid", () => {
     const event = {
-      id: "ma-design-malformed-reference",
+      id: "ma-design-invalid-reference-type",
       type: "agent.custom_tool_use",
       name: "generate_design_image",
       input: {
         prompt: "Create a vintage botanical print",
         size: "2048x2048",
-        referenceImages: [{ base64: "aW1hZ2U=" }],
+        reference_image_sources: [{ type: "base64" }],
+      },
+    };
+
+    expect(() => decodeModelArkManagedAgentEvent(event)).toThrow(
+      "Invalid provisional ModelArk event",
+    );
+  });
+
+  it("rejects generate_design_image when a present url is not a string", () => {
+    const event = {
+      id: "ma-design-invalid-reference-url",
+      type: "agent.custom_tool_use",
+      name: "generate_design_image",
+      input: {
+        prompt: "Create a vintage botanical print",
+        size: "2048x2048",
+        reference_image_sources: [{ type: "url", url: 42 }],
       },
     };
 

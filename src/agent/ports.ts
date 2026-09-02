@@ -1,11 +1,18 @@
 import type { CrawlSource, TrendCard } from "../../packages/contracts";
 import type { BffRequest } from "../bff/types";
 
+export type ReferenceImageSource = {
+  type: "url" | "file" | "tos";
+  url?: string;
+  file_id?: string;
+  tos_uri?: string;
+};
+
 export type GenerateDesignImageInput = {
   prompt: string;
   size: string;
   seed?: number;
-  referenceImages?: readonly { base64: string; mimeType: string }[];
+  reference_image_sources?: readonly ReferenceImageSource[];
 };
 
 export type GenerateDesignImageResult =
