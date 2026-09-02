@@ -5,6 +5,7 @@ export type GenerateDesignImageInput = {
   prompt: string;
   size: string;
   seed?: number;
+  referenceImages?: readonly { base64: string; mimeType: string }[];
 };
 
 export type GenerateDesignImageResult =
@@ -17,6 +18,12 @@ export type ManagedAgentEvent =
       type: "agent.custom_tool_use";
       name: "crawl";
       input: { source: CrawlSource };
+    }
+  | {
+      id: string;
+      type: "agent.custom_tool_use";
+      name: "generate_design_image";
+      input: GenerateDesignImageInput;
     }
   | { id: string; type: "agent.thinking"; note?: string }
   | {

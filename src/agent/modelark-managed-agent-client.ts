@@ -102,7 +102,15 @@ function isGenerateDesignInput(value: unknown): value is GenerateDesignImageInpu
     isRecord(value) &&
     isString(value.prompt) &&
     isString(value.size) &&
-    (value.seed === undefined || typeof value.seed === "number")
+    (value.seed === undefined || typeof value.seed === "number") &&
+    (value.referenceImages === undefined ||
+      (Array.isArray(value.referenceImages) &&
+        value.referenceImages.every(
+          (image) =>
+            isRecord(image) &&
+            isString(image.base64) &&
+            isString(image.mimeType),
+        )))
   );
 }
 
@@ -130,6 +138,12 @@ export function decodeModelArkManagedAgentEvent(
         value.name === "crawl" &&
         isRecord(value.input) &&
         isCrawlSource(value.input.source)
+      ) {
+        return value as unknown as ManagedAgentEvent;
+      }
+      if (
+        value.name === "generate_design_image" &&
+        isGenerateDesignInput(value.input)
       ) {
         return value as unknown as ManagedAgentEvent;
       }

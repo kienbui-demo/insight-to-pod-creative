@@ -6,6 +6,7 @@ import {
   RECORDED_MANAGED_AGENT_EVENTS,
 } from "../__fixtures__/managed-agent-events";
 import { mapManagedAgentEvents } from "../ma-event-mapper";
+import type { ManagedAgentEvent } from "../ports";
 
 describe("G4 MA event mapper contract", () => {
   it("maps the recorded MA stream to the exact ordered RawMaEvent sequence", () => {
@@ -67,6 +68,44 @@ describe("G4 MA event mapper contract", () => {
         id: "ma-006",
         type: "unmapped",
         name: "span.model_request_start",
+      } satisfies RawMaEvent,
+    ]);
+  });
+
+  it("maps both supported custom-tool names to the available RawMaEvent shapes", () => {
+    const events = [
+      {
+        id: "ma-crawl-tool-call",
+        type: "agent.custom_tool_use",
+        name: "crawl",
+        input: { source: "reddit" },
+      },
+      {
+        id: "ma-design-tool-call",
+        type: "agent.custom_tool_use",
+        name: "generate_design_image",
+        input: {
+          prompt: "Blend two botanical references",
+          size: "2048x2048",
+          referenceImages: [
+            { base64: "aW1hZ2UtMQ==", mimeType: "image/png" },
+            { base64: "aW1hZ2UtMg==", mimeType: "image/jpeg" },
+          ],
+        },
+      },
+    ] as const satisfies readonly ManagedAgentEvent[];
+
+    expect(mapManagedAgentEvents(events)).toEqual([
+      {
+        id: "ma-crawl-tool-call",
+        type: "tool_call",
+        tool: "crawl",
+        source: "reddit",
+      } satisfies RawMaEvent,
+      {
+        id: "ma-design-tool-call",
+        type: "unmapped",
+        name: "agent.custom_tool_use",
       } satisfies RawMaEvent,
     ]);
   });

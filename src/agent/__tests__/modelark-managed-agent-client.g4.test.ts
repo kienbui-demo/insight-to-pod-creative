@@ -76,3 +76,81 @@ describe("C1 G4 provisional ModelArk event integration", () => {
     expect(routeFetch.requests).toHaveLength(1);
   });
 });
+
+describe("provisional ModelArk custom-tool decoder", () => {
+  it("accepts generate_design_image with a non-empty referenceImages array", () => {
+    const event = {
+      id: "ma-design-with-references",
+      type: "agent.custom_tool_use",
+      name: "generate_design_image",
+      input: {
+        prompt: "Blend these references into a vintage botanical print",
+        size: "2048x2048",
+        seed: 7319,
+        referenceImages: [
+          { base64: "aW1hZ2UtMQ==", mimeType: "image/png" },
+          { base64: "aW1hZ2UtMg==", mimeType: "image/jpeg" },
+        ],
+      },
+    } as const;
+
+    expect(decodeModelArkManagedAgentEvent(event)).toEqual(event);
+  });
+
+  it("accepts generate_design_image with an empty referenceImages array", () => {
+    const event = {
+      id: "ma-design-empty-references",
+      type: "agent.custom_tool_use",
+      name: "generate_design_image",
+      input: {
+        prompt: "Create a vintage botanical print",
+        size: "2048x2048",
+        referenceImages: [],
+      },
+    } as const;
+
+    expect(decodeModelArkManagedAgentEvent(event)).toEqual(event);
+  });
+
+  it("accepts generate_design_image without referenceImages", () => {
+    const event = {
+      id: "ma-design-without-references",
+      type: "agent.custom_tool_use",
+      name: "generate_design_image",
+      input: {
+        prompt: "Create a vintage botanical print",
+        size: "2048x2048",
+      },
+    } as const;
+
+    expect(decodeModelArkManagedAgentEvent(event)).toEqual(event);
+  });
+
+  it("still accepts the crawl custom-tool variant", () => {
+    const event = {
+      id: "ma-crawl",
+      type: "agent.custom_tool_use",
+      name: "crawl",
+      input: { source: "reddit" },
+    } as const;
+
+    expect(decodeModelArkManagedAgentEvent(event)).toEqual(event);
+  });
+
+  it("rejects generate_design_image when a reference image lacks mimeType", () => {
+    const event = {
+      id: "ma-design-malformed-reference",
+      type: "agent.custom_tool_use",
+      name: "generate_design_image",
+      input: {
+        prompt: "Create a vintage botanical print",
+        size: "2048x2048",
+        referenceImages: [{ base64: "aW1hZ2U=" }],
+      },
+    };
+
+    expect(() => decodeModelArkManagedAgentEvent(event)).toThrow(
+      "Invalid provisional ModelArk event",
+    );
+  });
+});

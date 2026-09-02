@@ -4,12 +4,15 @@ import type { ManagedAgentEvent } from "./ports";
 function mapManagedAgentEvent(event: ManagedAgentEvent): RawMaEvent {
   switch (event.type) {
     case "agent.custom_tool_use":
-      return {
-        id: event.id,
-        type: "tool_call",
-        tool: "crawl",
-        source: event.input.source,
-      };
+      if (event.name === "crawl") {
+        return {
+          id: event.id,
+          type: "tool_call",
+          tool: "crawl",
+          source: event.input.source,
+        };
+      }
+      return { id: event.id, type: "unmapped", name: event.type };
     case "session.error":
       return {
         id: event.id,
