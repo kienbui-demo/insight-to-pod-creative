@@ -9,6 +9,9 @@ import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
 import { SafeMetricSink } from "../monitoring/safe-metric-sink";
 import { mapManagedAgentEvents } from "./ma-event-mapper";
 import type {
+  CrawlPort,
+  CrawlPortInput,
+  CrawlPortResult,
   ManagedAgentClientPort,
   ManagedAgentEvent,
   ManagedAgentSessionPort,
@@ -17,6 +20,7 @@ import type {
 
 interface CreateModelArkLiveSessionPortOptions {
   client: ManagedAgentClientPort;
+  crawl?: CrawlPort;
   seedream: SeedreamImagePort;
   maxImagesPerAction: 1;
   metricSink?: MetricSink;
@@ -98,10 +102,12 @@ class ModelArkLiveRun implements LiveRun {
   private readonly output = new AsyncEventQueue<RawMaEvent>();
   private readonly failedSources = new Set<CrawlSource>();
   private readonly toolUses = new Map<string, ManagedAgentEvent>();
+  private crawlContext: Omit<CrawlPortInput, "source"> | undefined;
 
   constructor(
     private readonly session: ManagedAgentSessionPort,
     rawEvents: AsyncIterable<ManagedAgentEvent>,
+    private readonly crawl: CrawlPort | undefined,
     private readonly seedream: SeedreamImagePort,
     private readonly metricSink: MetricSink,
   ) {
@@ -125,6 +131,10 @@ class ModelArkLiveRun implements LiveRun {
   }
 
   async send(request: BffRequest): Promise<void> {
+    const { source: _source, mode: _mode, ...crawlContext } = request.crawl;
+    void _source;
+    void _mode;
+    this.crawlContext = crawlContext;
     await this.session.send(request);
   }
 
@@ -208,7 +218,50 @@ class ModelArkLiveRun implements LiveRun {
               continue;
             }
             if (toolUse.name === "crawl") {
-              // F2: fulfill crawl tool calls through the crawl transport.
+              const result: CrawlPortResult =
+                this.crawlContext === undefined || this.crawl === undefined
+                  ? {
+                      ok: false,
+                      recoverable: false,
+                      message: "crawl context unavailable",
+                    }
+                  : await this.crawl.fetch({
+                      source: toolUse.input.source,
+                      ...this.crawlContext,
+                    });
+              if (!result.ok) {
+                this.failedSources.add(toolUse.input.source);
+              }
+              this.metricSink.record({
+                name: "ptv_crawl_source_run_total",
+                kind: "counter",
+                value: 1,
+                labels: {
+                  source: toolUse.input.source,
+                  mode: "live",
+                  outcome: !result.ok
+                    ? "failure"
+                    : result.records.length === 0
+                      ? "empty"
+                      : "success",
+                  stage: "execute",
+                },
+                observedAt: new Date().toISOString(),
+                observationId: `live-crawl:${toolUseId}:execute`,
+              });
+
+              const resultEvent = {
+                id: `${toolUseId}:result`,
+                type: "user.custom_tool_result",
+                custom_tool_use_id: toolUseId,
+                name: "crawl",
+                input: { source: toolUse.input.source },
+                result,
+              } satisfies ManagedAgentEvent;
+              await this.session.submitCustomToolResult(resultEvent);
+              for (const mapped of mapManagedAgentEvents([resultEvent])) {
+                this.output.push(mapped);
+              }
               continue;
             }
 
@@ -252,6 +305,7 @@ export function createModelArkLiveSessionPort(
       return new ModelArkLiveRun(
         session,
         rawEvents,
+        options.crawl,
         options.seedream,
         metricSink,
       );

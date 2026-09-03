@@ -62,6 +62,17 @@ describe("buildLiveDependencies", () => {
         maxImagesPerAction: 1,
       }),
     );
+    const liveSessionOptions = liveSessionFactory.mock.calls[0]?.[0];
+    expect(liveSessionOptions).toEqual(
+      expect.objectContaining({
+        crawl: expect.objectContaining({ fetch: expect.any(Function) }),
+      }),
+    );
+    const stubModulePath = "../../agent/stub-crawl-port";
+    const { stubCrawlPort } = await import(stubModulePath);
+    expect(
+      (liveSessionOptions as unknown as { crawl: unknown }).crawl,
+    ).toBe(stubCrawlPort);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

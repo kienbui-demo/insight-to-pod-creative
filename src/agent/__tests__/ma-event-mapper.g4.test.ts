@@ -110,6 +110,57 @@ describe("G4 MA event mapper contract", () => {
     ]);
   });
 
+  it("keeps crawl tool results internal and preserves Seedream success mapping", () => {
+    const events = [
+      {
+        id: "ma-crawl-result-success",
+        type: "user.custom_tool_result",
+        custom_tool_use_id: "ma-crawl-tool-success",
+        name: "crawl",
+        input: { source: "reddit" },
+        result: { ok: true, records: [] },
+      },
+      {
+        id: "ma-crawl-result-failure",
+        type: "user.custom_tool_result",
+        custom_tool_use_id: "ma-crawl-tool-failure",
+        name: "crawl",
+        input: { source: "meta_ads" },
+        result: {
+          ok: false,
+          recoverable: true,
+          message: "Meta Ads timed out",
+        },
+      },
+      {
+        id: "ma-seedream-result-success",
+        type: "user.custom_tool_result",
+        custom_tool_use_id: "ma-seedream-tool-success",
+        name: "generate_design_image",
+        input: { prompt: "Vintage botanical fox", size: "2K" },
+        result: { ok: true, url: "https://tos.example/generated/fox.png" },
+      },
+    ] as const satisfies readonly ManagedAgentEvent[];
+
+    expect(mapManagedAgentEvents(events)).toEqual([
+      {
+        id: "ma-crawl-result-success",
+        type: "unmapped",
+        name: "user.custom_tool_result",
+      },
+      {
+        id: "ma-crawl-result-failure",
+        type: "unmapped",
+        name: "user.custom_tool_result",
+      },
+      {
+        id: "ma-seedream-result-success",
+        type: "seedream_image",
+        url: "https://tos.example/generated/fox.png",
+      },
+    ] satisfies RawMaEvent[]);
+  });
+
   it("joins agent message content into one semantic answer payload", () => {
     const event = {
       id: "ma-answer",

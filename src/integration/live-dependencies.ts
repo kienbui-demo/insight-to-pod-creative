@@ -1,5 +1,6 @@
 import { ModelArkManagedAgentClient } from "../agent/modelark-managed-agent-client";
 import * as modelarkLiveSessionModule from "../agent/modelark-live-session";
+import { stubCrawlPort } from "../agent/stub-crawl-port";
 import { alwaysMissTrendCardLookup } from "./always-miss-trend-card-lookup";
 import { loadModelArkConfig } from "./env-config";
 import { InMemoryRunSessionRepository } from "./in-memory-run-session-repository";
@@ -22,6 +23,7 @@ export function buildLiveDependencies(
   });
   const liveSessions = modelarkLiveSessionModule.createModelArkLiveSessionPort({
     client,
+    crawl: stubCrawlPort,
     seedream,
     maxImagesPerAction: 1,
   });

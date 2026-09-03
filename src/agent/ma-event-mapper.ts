@@ -35,6 +35,9 @@ function mapManagedAgentEvent(event: ManagedAgentEvent): RawMaEvent {
         text: event.content.map((item) => item.text).join(""),
       };
     case "user.custom_tool_result":
+      if (event.name === "crawl") {
+        return { id: event.id, type: "unmapped", name: event.type };
+      }
       return event.result.ok
         ? { id: event.id, type: "seedream_image", url: event.result.url }
         : { id: event.id, type: "unmapped", name: event.type };
