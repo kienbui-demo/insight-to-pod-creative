@@ -26,7 +26,7 @@ interface AuthenticatedSeller {
   sellerId: string;
 }
 
-interface MonetizedLiveDependencies extends BffDependencies {
+export interface MonetizedLiveDependencies extends BffDependencies {
   credits?: CreditGatePort;
   authenticateSeller?(request: Request): Promise<AuthenticatedSeller>;
 }
