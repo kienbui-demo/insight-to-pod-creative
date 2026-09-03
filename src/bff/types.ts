@@ -19,6 +19,7 @@ export type RawMaEvent =
   | { id: string; type: "synthesis_chunk"; note?: string }
   | { id: string; type: "seedream_image"; url: string }
   | { id: string; type: "final_card"; card: TrendCard }
+  | { id: string; type: "agent_message"; text: string }
   | {
       id: string;
       type: "error";

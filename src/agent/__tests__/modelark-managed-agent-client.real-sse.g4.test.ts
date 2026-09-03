@@ -234,7 +234,7 @@ describe("G4 real ModelArk Managed Agent SSE decoding", () => {
     expect(fetchPort).toHaveBeenCalledTimes(1);
   });
 
-  it("joins real thinking content and leaves control and agent messages unmapped", () => {
+  it("joins real thinking and agent message content while leaving control events unmapped", () => {
     const decoded = REAL_MANAGED_AGENT_EVENTS.map((event) =>
       decodeModelArkManagedAgentEvent(event),
     ).filter((event): event is ManagedAgentEvent => event !== null);
@@ -259,8 +259,8 @@ describe("G4 real ModelArk Managed Agent SSE decoding", () => {
       } satisfies RawMaEvent,
       {
         id: "real-agent-message",
-        type: "unmapped",
-        name: "agent.message",
+        type: "agent_message",
+        text: "Your design is ready.",
       } satisfies RawMaEvent,
     ]);
     expect(translateRawMaEvents(mapped)).toEqual([
@@ -268,6 +268,11 @@ describe("G4 real ModelArk Managed Agent SSE decoding", () => {
         id: "real-thinking",
         type: "synthesizing",
         note: "Inspecting references.",
+      },
+      {
+        id: "real-agent-message",
+        type: "answer",
+        text: "Your design is ready.",
       },
     ]);
   });

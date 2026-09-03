@@ -13,6 +13,8 @@ export function translateRawMaEvent(raw: RawMaEvent): UiEvent | undefined {
       return { id: raw.id, type: "image:ready", url: raw.url };
     case "final_card":
       return { id: raw.id, type: "card:ready", card: raw.card };
+    case "agent_message":
+      return { id: raw.id, type: "answer", text: raw.text };
     case "error":
       return {
         id: raw.id,

@@ -273,4 +273,11 @@ export const EXPECTED_F1_REAL_UI_EVENTS = [
     type: "synthesizing",
     note: "The user asked for a retro Halloween cat illustration in a vintage muted palette at 2048x2048.  The design generation tool returned a placeholder image showing the required 2048×2048 dimensions. I will report this result to the user along with details about the requested design.\n",
   },
+  {
+    id: "f1-real-020",
+    type: "answer",
+    text: F1_REAL_MODELARK_RECORDING.events[19].content
+      .map((item) => item.text)
+      .join(""),
+  },
 ] as const satisfies readonly UiEvent[];

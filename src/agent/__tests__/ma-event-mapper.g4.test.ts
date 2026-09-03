@@ -109,4 +109,23 @@ describe("G4 MA event mapper contract", () => {
       } satisfies RawMaEvent,
     ]);
   });
+
+  it("joins agent message content into one semantic answer payload", () => {
+    const event = {
+      id: "ma-answer",
+      type: "agent.message",
+      content: [
+        { type: "text", text: "Design **ready**. " },
+        { type: "text", text: "[Open image](https://tos.example/design.png)" },
+      ],
+    } as const satisfies ManagedAgentEvent;
+
+    expect(mapManagedAgentEvents([event])).toEqual([
+      {
+        id: "ma-answer",
+        type: "agent_message",
+        text: "Design **ready**. [Open image](https://tos.example/design.png)",
+      } satisfies RawMaEvent,
+    ]);
+  });
 });

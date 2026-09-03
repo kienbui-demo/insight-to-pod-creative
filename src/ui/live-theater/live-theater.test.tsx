@@ -110,6 +110,19 @@ describe("LiveTheater", () => {
     expect(await screen.findByText(TREND_CARD.seed)).toBeInTheDocument();
     expect(screen.getByText("84/100")).toBeInTheDocument();
 
+    const answerText =
+      "Design **ready**. [Open image](https://tos.example/generated.png)";
+    await act(async () => {
+      eventSource.emit({
+        id: "event-answer",
+        type: "answer",
+        text: answerText,
+      } satisfies UiEvent);
+    });
+    const answer = await screen.findByText(answerText);
+    const cardBlock = screen.getByText(TREND_CARD.seed).closest("div");
+    expect(cardBlock?.nextElementSibling).toBe(answer);
+
     await act(async () => {
       eventSource.emit({
         id: "event-5",
@@ -130,5 +143,6 @@ describe("LiveTheater", () => {
       } satisfies UiEvent);
     });
     expect(await screen.findByText("Analysis complete")).toBeInTheDocument();
+    expect(screen.getByText(answerText)).toBeInTheDocument();
   });
 });

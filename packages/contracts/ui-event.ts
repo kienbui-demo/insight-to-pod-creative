@@ -6,5 +6,6 @@ export type UiEvent =
   | { id: string; type: "synthesizing"; note?: string }
   | { id: string; type: "image:ready"; url: string }
   | { id: string; type: "card:ready"; card: TrendCard }
+  | { id: string; type: "answer"; text: string }
   | { id: string; type: "error"; recoverable: boolean; message: string }
   | { id: string; type: "done" };

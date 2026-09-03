@@ -34,6 +34,7 @@ describe("G4 F1 real ModelArk server-wire fixture", () => {
       .map((event) => decodeModelArkManagedAgentEvent(event))
       .filter((event): event is ManagedAgentEvent => event !== null);
 
+    expect(EXPECTED_F1_REAL_UI_EVENTS).toHaveLength(4);
     expect(translateRawMaEvents(mapManagedAgentEvents(decoded))).toEqual(
       EXPECTED_F1_REAL_UI_EVENTS,
     );

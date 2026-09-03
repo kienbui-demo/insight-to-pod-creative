@@ -33,6 +33,10 @@ describe("G4 semantic SSE translator", () => {
       { id: "image", type: "image:ready", url: "https://tos/img.png" },
     ],
     [
+      { id: "answer", type: "agent_message", text: "Design is ready" },
+      { id: "answer", type: "answer", text: "Design is ready" },
+    ],
+    [
       { id: "card", type: "final_card", card: RECORDED_TREND_CARD },
       { id: "card", type: "card:ready", card: RECORDED_TREND_CARD },
     ],

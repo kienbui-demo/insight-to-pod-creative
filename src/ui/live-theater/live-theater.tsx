@@ -85,6 +85,12 @@ export function LiveTheater({ eventSource }: LiveTheaterProps) {
         </div>
       ) : null}
 
+      {state.answerText ? (
+        <p className="mt-5 whitespace-pre-wrap text-sm text-slate-700">
+          {state.answerText}
+        </p>
+      ) : null}
+
       {state.warnings.map((warning) => (
         <p
           className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"

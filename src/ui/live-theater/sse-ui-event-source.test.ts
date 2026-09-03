@@ -72,8 +72,13 @@ describe("C1 fetch-backed SSE UiEventSource", () => {
       type: "synthesizing",
       note: "Comparing sources",
     } satisfies UiEvent;
-    const done = { id: "event-3", type: "done" } satisfies UiEvent;
-    const wire = frame(scanning) + frame(synthesizing) + frame(done);
+    const answer = {
+      id: "event-3",
+      type: "answer",
+      text: "Design **ready**. [Open image](https://tos.example/design.png)",
+    } satisfies UiEvent;
+    const done = { id: "event-4", type: "done" } satisfies UiEvent;
+    const wire = frame(scanning) + frame(synthesizing) + frame(answer) + frame(done);
     const boundaries = [1, 7, 19, 43, wire.length - 3];
     const chunks: string[] = [];
     let previous = 0;
@@ -98,8 +103,30 @@ describe("C1 fetch-backed SSE UiEventSource", () => {
     await expect(collect(source)).resolves.toEqual([
       scanning,
       synthesizing,
+      answer,
       done,
     ]);
+  });
+
+  it("rejects an answer event whose text is not a string", async () => {
+    const invalid = {
+      id: "invalid-answer",
+      type: "answer",
+      text: 42,
+    };
+    const fetch = vi.fn(async () =>
+      new Response(streamFromChunks([frame(invalid)]), {
+        headers: { "content-type": "text/event-stream" },
+      }),
+    );
+    const source = createSseUiEventSource({
+      url: "/api/live",
+      runId: "run-invalid-answer",
+      request: { kind: "trend-card", crawl: CRAWL },
+      fetch,
+    });
+
+    await expect(collect(source)).rejects.toThrow("Invalid UiEvent");
   });
 
   it("rejects data that is not a valid frozen UiEvent", async () => {

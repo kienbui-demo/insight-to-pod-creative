@@ -29,7 +29,11 @@ function mapManagedAgentEvent(event: ManagedAgentEvent): RawMaEvent {
         ? { id: event.id, type: "synthesis_chunk" }
         : { id: event.id, type: "synthesis_chunk", note };
     case "agent.message":
-      return { id: event.id, type: "unmapped", name: event.type };
+      return {
+        id: event.id,
+        type: "agent_message",
+        text: event.content.map((item) => item.text).join(""),
+      };
     case "user.custom_tool_result":
       return event.result.ok
         ? { id: event.id, type: "seedream_image", url: event.result.url }
