@@ -85,6 +85,35 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
+type DirectlyDecodableManagedAgentEvent =
+  | {
+      id: string;
+      type: Exclude<
+        ManagedAgentEvent["type"],
+        "span.model_request_start"
+      >;
+    }
+  | {
+      id: string;
+      type: "span.model_request_start";
+      model: string;
+    };
+
+function joinTextContent(value: unknown): string | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const text: string[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || item.type !== "text" || !isString(item.text)) {
+      return null;
+    }
+    text.push(item.text);
+  }
+  return text.join("");
+}
+
 function isCrawlSource(value: unknown): boolean {
   return (
     value === "google_trends" ||
@@ -130,8 +159,14 @@ function isGenerateDesignResult(
 }
 
 export function decodeModelArkManagedAgentEvent(
+  value: DirectlyDecodableManagedAgentEvent,
+): ManagedAgentEvent;
+export function decodeModelArkManagedAgentEvent(
   value: unknown,
-): ManagedAgentEvent {
+): ManagedAgentEvent | null;
+export function decodeModelArkManagedAgentEvent(
+  value: unknown,
+): ManagedAgentEvent | null {
   if (!isRecord(value) || !isString(value.id) || !isString(value.type)) {
     throw new Error("Invalid provisional ModelArk event");
   }
@@ -153,7 +188,18 @@ export function decodeModelArkManagedAgentEvent(
       }
       break;
     case "agent.thinking":
+      if (value.content !== undefined) {
+        if (joinTextContent(value.content) !== null) {
+          return value as unknown as ManagedAgentEvent;
+        }
+        break;
+      }
       if (value.note === undefined || isString(value.note)) {
+        return value as unknown as ManagedAgentEvent;
+      }
+      break;
+    case "agent.message":
+      if (joinTextContent(value.content) !== null) {
         return value as unknown as ManagedAgentEvent;
       }
       break;
@@ -165,6 +211,13 @@ export function decodeModelArkManagedAgentEvent(
         isGenerateDesignResult(value.result)
       ) {
         return value as unknown as ManagedAgentEvent;
+      }
+      if (
+        isString(value.custom_tool_use_id) &&
+        typeof value.is_error === "boolean" &&
+        joinTextContent(value.content) !== null
+      ) {
+        return null;
       }
       break;
     case "agent.output":
@@ -206,7 +259,18 @@ export function decodeModelArkManagedAgentEvent(
       if (isString(value.model)) {
         return value as unknown as ManagedAgentEvent;
       }
+      if (value.model === undefined) {
+        return null;
+      }
       break;
+    case "session.status_running":
+    case "session.thread_status_running":
+    case "session.thread_status_idle":
+    case "span.model_request_end":
+    case "user.message":
+    case "agent.tool_use":
+    case "agent.tool_result":
+      return null;
   }
 
   throw new Error("Invalid provisional ModelArk event");
@@ -262,7 +326,10 @@ async function* readManagedAgentSse(
         const value = parseSseData(buffer.slice(0, boundary));
         buffer = buffer.slice(boundary + 2);
         if (value !== undefined) {
-          yield decodeModelArkManagedAgentEvent(value);
+          const event = decodeModelArkManagedAgentEvent(value);
+          if (event !== null) {
+            yield event;
+          }
         }
         boundary = buffer.indexOf("\n\n");
       }
@@ -270,7 +337,10 @@ async function* readManagedAgentSse(
     if (buffer.trim()) {
       const value = parseSseData(buffer);
       if (value !== undefined) {
-        yield decodeModelArkManagedAgentEvent(value);
+        const event = decodeModelArkManagedAgentEvent(value);
+        if (event !== null) {
+          yield event;
+        }
       }
     }
   } finally {
@@ -335,7 +405,14 @@ class ModelArkManagedAgentSession implements ManagedAgentSessionPort {
           : isRecord(payload) && Array.isArray(payload.items)
             ? payload.items
             : [];
-      return events.map(decodeModelArkManagedAgentEvent);
+      const decoded: ManagedAgentEvent[] = [];
+      for (const event of events) {
+        const managedAgentEvent = decodeModelArkManagedAgentEvent(event);
+        if (managedAgentEvent !== null) {
+          decoded.push(managedAgentEvent);
+        }
+      }
+      return decoded;
     });
   }
 

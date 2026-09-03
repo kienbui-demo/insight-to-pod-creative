@@ -19,6 +19,11 @@ export type GenerateDesignImageResult =
   | { ok: true; url: string }
   | { ok: false; recoverable: boolean; message: string };
 
+export type ManagedAgentTextContent = {
+  type: "text";
+  text: string;
+};
+
 export type ManagedAgentEvent =
   | {
       id: string;
@@ -32,7 +37,17 @@ export type ManagedAgentEvent =
       name: "generate_design_image";
       input: GenerateDesignImageInput;
     }
-  | { id: string; type: "agent.thinking"; note?: string }
+  | {
+      id: string;
+      type: "agent.thinking";
+      content?: readonly ManagedAgentTextContent[];
+      note?: string;
+    }
+  | {
+      id: string;
+      type: "agent.message";
+      content: readonly ManagedAgentTextContent[];
+    }
   | {
       id: string;
       type: "user.custom_tool_result";

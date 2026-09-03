@@ -21,9 +21,15 @@ function mapManagedAgentEvent(event: ManagedAgentEvent): RawMaEvent {
         message: event.error.message,
       };
     case "agent.thinking":
-      return event.note === undefined
+      const note =
+        event.content === undefined
+          ? event.note
+          : event.content.map((item) => item.text).join("");
+      return note === undefined
         ? { id: event.id, type: "synthesis_chunk" }
-        : { id: event.id, type: "synthesis_chunk", note: event.note };
+        : { id: event.id, type: "synthesis_chunk", note };
+    case "agent.message":
+      return { id: event.id, type: "unmapped", name: event.type };
     case "user.custom_tool_result":
       return event.result.ok
         ? { id: event.id, type: "seedream_image", url: event.result.url }
