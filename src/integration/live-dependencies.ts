@@ -4,7 +4,7 @@ import { alwaysMissTrendCardLookup } from "./always-miss-trend-card-lookup";
 import { loadModelArkConfig } from "./env-config";
 import { InMemoryRunSessionRepository } from "./in-memory-run-session-repository";
 import type { MonetizedLiveDependencies } from "./live-route";
-import { stubSeedreamImagePort } from "./stub-seedream-image-port";
+import * as seedreamModule from "./modelark-seedream-image-port";
 
 export function buildLiveDependencies(
   env: NodeJS.ProcessEnv = process.env,
@@ -15,9 +15,14 @@ export function buildLiveDependencies(
     ...config,
     runSessions,
   });
+  const seedream = seedreamModule.createModelArkSeedreamImagePort({
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    model: config.seedreamModel,
+  });
   const liveSessions = modelarkLiveSessionModule.createModelArkLiveSessionPort({
     client,
-    seedream: stubSeedreamImagePort,
+    seedream,
     maxImagesPerAction: 1,
   });
 

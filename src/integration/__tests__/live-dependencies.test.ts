@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CrawlRequest } from "../../../packages/contracts";
 import * as modelarkLiveSessionModule from "../../agent/modelark-live-session";
 import { buildLiveDependencies } from "../live-dependencies";
-import { stubSeedreamImagePort } from "../stub-seedream-image-port";
+import * as seedreamModule from "../modelark-seedream-image-port";
 
 const VALID_ENV: NodeJS.ProcessEnv = {
   NODE_ENV: "test",
@@ -35,6 +35,10 @@ describe("buildLiveDependencies", () => {
       modelarkLiveSessionModule,
       "createModelArkLiveSessionPort",
     );
+    const seedreamFactory = vi.spyOn(
+      seedreamModule,
+      "createModelArkSeedreamImagePort",
+    );
 
     const dependencies = buildLiveDependencies(VALID_ENV);
 
@@ -43,28 +47,21 @@ describe("buildLiveDependencies", () => {
     await expect(dependencies.lookup.lookup(CRAWL)).resolves.toEqual({
       kind: "miss",
     });
+    expect(seedreamFactory).toHaveBeenCalledOnce();
+    expect(seedreamFactory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: "https://ark.example.test",
+        apiKey: "test-api-key",
+        model: "seedream-5-0-lite-260128",
+      }),
+    );
     expect(liveSessionFactory).toHaveBeenCalledOnce();
     expect(liveSessionFactory).toHaveBeenCalledWith(
       expect.objectContaining({
-        seedream: stubSeedreamImagePort,
+        seedream: seedreamFactory.mock.results[0].value,
         maxImagesPerAction: 1,
       }),
     );
-
-    const options = liveSessionFactory.mock.calls[0]?.[0];
-    expect(options).toBeDefined();
-    if (options === undefined) {
-      throw new Error("live session factory was not called");
-    }
-    await expect(
-      options.seedream.generate({
-        prompt: "A retro botanical fox",
-        size: "1024x1536",
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      url: "https://placehold.co/1024x1536/png",
-    });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

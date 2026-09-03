@@ -4,6 +4,7 @@ export interface ModelArkConfig {
   agentId: string;
   agentVersion: number;
   environmentId: string;
+  seedreamModel: string;
 }
 
 type ModelArkEnvKey =
@@ -29,6 +30,8 @@ export function loadModelArkConfig(
   const agentId = requiredEnv(env, "ARK_AGENT_ID");
   const agentVersionValue = requiredEnv(env, "ARK_AGENT_VERSION");
   const environmentId = requiredEnv(env, "ARK_ENVIRONMENT_ID");
+  const seedreamModel =
+    env.ARK_SEEDREAM_MODEL || "seedream-5-0-lite-260128";
   const agentVersion = Number(agentVersionValue);
 
   if (!Number.isInteger(agentVersion) || agentVersion <= 0) {
@@ -41,5 +44,6 @@ export function loadModelArkConfig(
     agentId,
     agentVersion,
     environmentId,
+    seedreamModel,
   };
 }

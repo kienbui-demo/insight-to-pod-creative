@@ -19,6 +19,7 @@ describe("loadModelArkConfig", () => {
       agentId: "test-agent-id",
       agentVersion: 7,
       environmentId: "test-environment-id",
+      seedreamModel: "seedream-5-0-lite-260128",
     });
   });
 
