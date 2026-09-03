@@ -3,8 +3,8 @@ import type { ManagedAgentEvent } from "../ports";
 
 import { COMPLETE_TREND_CARD } from "./trend-card";
 
-export const PROVISIONAL_MODELARK_RECORDING = {
-  fixtureStatus: "provisional",
+export const SYNTHETIC_MODELARK_RECORDING = {
+  fixtureStatus: "synthetic",
   events: [
     {
       id: "ma-c1-001",
@@ -53,7 +53,7 @@ export const PROVISIONAL_MODELARK_RECORDING = {
     },
   ],
 } as const satisfies {
-  fixtureStatus: "provisional";
+  fixtureStatus: "synthetic";
   events: readonly ManagedAgentEvent[];
 };
 

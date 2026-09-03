@@ -6,8 +6,8 @@ import { createSseUiEventSource } from "../../ui/live-theater/sse-ui-event-sourc
 import type { UiEvent } from "../../../packages/contracts";
 import {
   EXPECTED_C1_UI_EVENTS,
-  PROVISIONAL_MODELARK_RECORDING,
-} from "../__fixtures__/modelark-managed-agent-events.c1.provisional";
+  SYNTHETIC_MODELARK_RECORDING,
+} from "../__fixtures__/modelark-managed-agent-events.c1.synthetic";
 import { mapManagedAgentEvents } from "../ma-event-mapper";
 import { decodeModelArkManagedAgentEvent } from "../modelark-managed-agent-client";
 import { RouteDispatchFetch } from "../../integration/__tests__/support/route-dispatch-fetch";
@@ -28,11 +28,11 @@ async function collect(source: {
   return events;
 }
 
-describe("C1 G4 provisional ModelArk event integration", () => {
+describe("C1 G4 synthetic ModelArk event integration", () => {
   it("decodes MA events and preserves exact semantics through RawMaEvent, SSE, and the UI parser", async () => {
-    expect(PROVISIONAL_MODELARK_RECORDING.fixtureStatus).toBe("provisional");
+    expect(SYNTHETIC_MODELARK_RECORDING.fixtureStatus).toBe("synthetic");
 
-    const decoded = PROVISIONAL_MODELARK_RECORDING.events.map((event) =>
+    const decoded = SYNTHETIC_MODELARK_RECORDING.events.map((event) =>
       decodeModelArkManagedAgentEvent(structuredClone(event)),
     );
     const rawEvents = mapManagedAgentEvents(decoded);
