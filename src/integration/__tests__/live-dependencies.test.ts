@@ -118,4 +118,24 @@ describe("buildLiveDependencies", () => {
 
     expect(dependencies.lookup).not.toBe(alwaysMissTrendCardLookup);
   });
+
+  it("wraps live sessions for persistence only when DATABASE_URL is present", () => {
+    const liveSessionFactory = vi.spyOn(
+      modelarkLiveSessionModule,
+      "createModelArkLiveSessionPort",
+    );
+
+    const withoutDatabase = buildLiveDependencies(VALID_ENV);
+    const rawWithoutDatabase = liveSessionFactory.mock.results[0]?.value;
+
+    expect(withoutDatabase.liveSessions).toBe(rawWithoutDatabase);
+
+    const withDatabase = buildLiveDependencies({
+      ...VALID_ENV,
+      DATABASE_URL: "postgresql://user:pass@localhost:5432/db",
+    });
+    const rawWithDatabase = liveSessionFactory.mock.results[1]?.value;
+
+    expect(withDatabase.liveSessions).not.toBe(rawWithDatabase);
+  });
 });
