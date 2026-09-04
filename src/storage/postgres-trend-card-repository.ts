@@ -107,6 +107,44 @@ export class PostgresTrendCardRepository implements TrendCardRepository {
     });
   }
 
+  async listRecent(limit: number): Promise<TrendCard[]> {
+    let result: QueryResult<TrendCardRow>;
+    try {
+      result = await this.executor.query<TrendCardRow>(
+        `SELECT ${CARD_COLUMNS}
+       FROM trend_cards
+       ORDER BY updated_at DESC
+       LIMIT $1`,
+        [limit],
+      );
+      this.recordOperation("trend_card_list_recent", "success");
+    } catch (error) {
+      this.recordOperation("trend_card_list_recent", "error");
+      throw error;
+    }
+
+    return result.rows.map(mapTrendCard);
+  }
+
+  async findById(id: string): Promise<TrendCard | null> {
+    let result: QueryResult<TrendCardRow>;
+    try {
+      result = await this.executor.query<TrendCardRow>(
+        `SELECT ${CARD_COLUMNS}
+       FROM trend_cards
+       WHERE id = $1
+       LIMIT 1`,
+        [id],
+      );
+      this.recordOperation("trend_card_by_id", "success");
+    } catch (error) {
+      this.recordOperation("trend_card_by_id", "error");
+      throw error;
+    }
+
+    return result.rows[0] ? mapTrendCard(result.rows[0]) : null;
+  }
+
   async findExact(key: CacheKey): Promise<TrendCard | null> {
     let result: QueryResult<TrendCardRow>;
     try {

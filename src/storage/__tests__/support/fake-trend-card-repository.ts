@@ -22,6 +22,14 @@ export class FakeTrendCardRepository {
 
   constructor(private readonly answers: FakeRepositoryAnswers = {}) {}
 
+  async listRecent(): Promise<TrendCard[]> {
+    return [];
+  }
+
+  async findById(): Promise<TrendCard | null> {
+    return null;
+  }
+
   async findExact(key: FakeCacheKey): Promise<TrendCard | null> {
     this.findExactCalls.push(key);
     return this.answers.exact ?? null;

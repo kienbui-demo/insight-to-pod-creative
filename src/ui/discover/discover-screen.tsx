@@ -2,36 +2,46 @@
 
 import { useMemo } from "react";
 
+import type { TrendCard } from "../../../packages/contracts";
 import { AppShell } from "../components/app-shell";
 import { Badge } from "../components/ui-primitives";
 import { LiveTheater } from "../live-theater/live-theater";
 import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
-import { TREND_CARDS } from "../mocks/trend-cards";
 import { TrendCardGrid } from "../trends/trend-card-grid";
 
 const suggestions = ["Halloween", "Christmas", "Winter gifting", "US", "DE"];
 
-export function DiscoverScreen() {
-  const eventSource = useMemo(
-    () =>
-      createSseUiEventSource({
-        url: "/api/live",
-        runId: crypto.randomUUID(),
-        request: {
-          kind: "trend-card",
-          crawl: {
-            source: "google_trends",
-            market: "US",
-            seed: TREND_CARDS[0].seed,
-            productType: TREND_CARDS[0].productType,
-            mode: "live",
-          },
+export function DiscoverScreen({
+  cards,
+  source,
+}: {
+  cards: readonly TrendCard[];
+  source: "live" | "sample";
+}) {
+  const eventSource = useMemo(() => {
+    const seedCard = cards[0] ?? {
+      market: "US",
+      seed: "halloween",
+      productType: "t-shirt",
+    };
+
+    return createSseUiEventSource({
+      url: "/api/live",
+      runId: crypto.randomUUID(),
+      request: {
+        kind: "trend-card",
+        crawl: {
+          source: "google_trends",
+          market: seedCard.market,
+          seed: seedCard.seed,
+          productType: seedCard.productType,
+          mode: "live",
         },
-        fetch: globalThis.fetch.bind(globalThis),
-        maxReconnects: 1,
-      }),
-    [],
-  );
+      },
+      fetch: globalThis.fetch.bind(globalThis),
+      maxReconnects: 1,
+    });
+  }, [cards]);
 
   return (
     <AppShell>
@@ -68,9 +78,11 @@ export function DiscoverScreen() {
               Trend Cards
             </h2>
           </div>
-          <p className="text-sm text-slate-500">Mock warehouse snapshot</p>
+          <p className="text-sm text-slate-500">
+            {source === "live" ? "Live warehouse" : "Sample data"}
+          </p>
         </div>
-        <TrendCardGrid cards={TREND_CARDS} />
+        <TrendCardGrid cards={cards} />
       </section>
     </AppShell>
   );

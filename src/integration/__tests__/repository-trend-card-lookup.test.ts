@@ -27,6 +27,14 @@ class FakeTrendCardRepository implements TrendCardRepository {
     private readonly similarResult: SimilarityMatch | null,
   ) {}
 
+  async listRecent() {
+    return [];
+  }
+
+  async findById() {
+    return null;
+  }
+
   async findExact(key: CacheKey) {
     this.exactKeys.push(key);
     return this.exactResult;
