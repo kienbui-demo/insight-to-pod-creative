@@ -1,6 +1,6 @@
 import type { ApifyActorEntry } from "../apify-crawl-port";
 
-export const GOOGLE_TRENDS_ACTOR_SLUG =
+export const GOOGLE_TRENDS_SEARCH_ACTOR_SLUG =
   "steadyfetch/google-trends-scraper";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -22,61 +22,58 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-export function createGoogleTrendsEntry(options?: {
+export function createGoogleTrendsSearchEntry(options?: {
   now?: () => string;
 }): ApifyActorEntry {
   const now = options?.now ?? (() => new Date().toISOString());
 
   return {
-    actorSlug: GOOGLE_TRENDS_ACTOR_SLUG,
+    actorSlug: GOOGLE_TRENDS_SEARCH_ACTOR_SLUG,
     enabled: true,
-    buildInput: (input) => {
-      const market = input.market.toUpperCase();
-      const geo =
-        input.market === "" ||
-        market === "WW" ||
-        market === "WORLD" ||
-        market === "WORLDWIDE" ||
-        market === "GLOBAL"
-          ? ""
-          : input.market;
-
-      return {
-        searchTerms: [input.seed],
-        geo,
-        timeRange: "today 12-m",
-        surfaces: ["interestOverTime"],
-      };
-    },
+    buildInput: (input) => ({
+      searchTerms: [input.seed],
+      geo: input.market,
+      timeRange: "today 12-m",
+      surfaces: ["interestOverTime"],
+    }),
     normalize: (items, input) => {
-      const row = items
+      const rows = items.filter(isPlainObject);
+      const row = rows.find(
+        (candidate) =>
+          candidate.surface === "interestOverTime" &&
+          isPlainObject(candidate.data) &&
+          Array.isArray(candidate.data.points),
+      );
+
+      if (!row || !isPlainObject(row.data) || !Array.isArray(row.data.points)) {
+        return [];
+      }
+
+      const trendSeries = row.data.points
         .filter(isPlainObject)
-        .find((item) => item.surface === "interestOverTime");
+        .map((point) => ({
+          t: typeof point.date === "string" ? point.date : undefined,
+          v: finiteNumber(point.value),
+        }))
+        .filter(
+          (point): point is { t: string; v: number } =>
+            point.t !== undefined && point.v !== undefined,
+        );
 
-      if (row === undefined || !isPlainObject(row.data)) {
+      const resultCount = trendSeries.length;
+      if (resultCount === 0) {
         return [];
       }
 
-      const points = Array.isArray(row.data.points) ? row.data.points : [];
-      const trendSeries = points.flatMap((point) => {
-        if (!isPlainObject(point) || typeof point.date !== "string") {
-          return [];
-        }
-
-        const value = finiteNumber(point.value);
-        return value === undefined ? [] : [{ t: point.date, v: value }];
-      });
-
-      if (trendSeries.length === 0) {
-        return [];
-      }
-
-      const pointCount = trendSeries.length;
-      const recentPoints = trendSeries.slice(-Math.min(3, pointCount));
-      const average =
-        recentPoints.reduce((sum, point) => sum + point.v, 0) /
-        recentPoints.length;
-      const normalizedValue = clamp01(average / 100);
+      const values = trendSeries.map((point) => point.v);
+      const minValue = Math.min(...values);
+      const maxValue = Math.max(...values);
+      const avgValue = values.reduce((sum, v) => sum + v, 0) / values.length;
+      const latestValue = values[values.length - 1];
+      const recentWindow = values.slice(-3);
+      const recentAvg =
+        recentWindow.reduce((sum, v) => sum + v, 0) / recentWindow.length;
+      const normalizedValue = clamp01(recentAvg / 100);
 
       return [
         {
@@ -86,9 +83,13 @@ export function createGoogleTrendsEntry(options?: {
           capturedAt: now(),
           signalType: "culture",
           payload: {
-            pointCount,
-            normalizedValue,
+            resultCount,
+            minValue,
+            maxValue,
+            avgValue,
+            latestValue,
             trendSeries,
+            normalizedValue,
           },
         },
       ];
