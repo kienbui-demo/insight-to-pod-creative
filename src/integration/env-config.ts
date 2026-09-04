@@ -8,14 +8,20 @@ export interface ModelArkConfig {
   embeddingModel: string;
 }
 
-type ModelArkEnvKey =
+export interface ApifyConfig {
+  token: string;
+  baseUrl: string;
+}
+
+type RequiredEnvKey =
   | "ARK_BASE_URL"
   | "ARK_API_KEY"
   | "ARK_AGENT_ID"
   | "ARK_AGENT_VERSION"
-  | "ARK_ENVIRONMENT_ID";
+  | "ARK_ENVIRONMENT_ID"
+  | "APIFY_TOKEN";
 
-function requiredEnv(env: NodeJS.ProcessEnv, key: ModelArkEnvKey): string {
+function requiredEnv(env: NodeJS.ProcessEnv, key: RequiredEnvKey): string {
   const value = env[key];
   if (value === undefined || value.length === 0) {
     throw new Error(`Missing required environment variable: ${key}`);
@@ -49,5 +55,14 @@ export function loadModelArkConfig(
     environmentId,
     seedreamModel,
     embeddingModel,
+  };
+}
+
+export function loadApifyConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): ApifyConfig {
+  return {
+    token: requiredEnv(env, "APIFY_TOKEN"),
+    baseUrl: env.APIFY_BASE_URL || "https://api.apify.com",
   };
 }

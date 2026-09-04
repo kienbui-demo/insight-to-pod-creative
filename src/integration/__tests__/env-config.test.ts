@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { loadModelArkConfig } from "../env-config";
+import { loadApifyConfig, loadModelArkConfig } from "../env-config";
 
 const VALID_ENV: NodeJS.ProcessEnv = {
   NODE_ENV: "test",
@@ -48,4 +48,48 @@ describe("loadModelArkConfig", () => {
       ).toThrow("ARK_AGENT_VERSION");
     },
   );
+});
+
+describe("loadApifyConfig", () => {
+  it("throws when APIFY_TOKEN is missing or empty", () => {
+    const missingTokenEnv: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+    };
+    const emptyTokenEnv: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+      APIFY_TOKEN: "",
+    };
+
+    expect(() => loadApifyConfig(missingTokenEnv)).toThrow(
+      "Missing required environment variable: APIFY_TOKEN",
+    );
+    expect(() => loadApifyConfig(emptyTokenEnv)).toThrow(
+      "Missing required environment variable: APIFY_TOKEN",
+    );
+  });
+
+  it("uses the default Apify base URL", () => {
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+      APIFY_TOKEN: "test-apify-token",
+    };
+
+    expect(loadApifyConfig(env)).toEqual({
+      token: "test-apify-token",
+      baseUrl: "https://api.apify.com",
+    });
+  });
+
+  it("honors APIFY_BASE_URL override", () => {
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+      APIFY_TOKEN: "test-apify-token",
+      APIFY_BASE_URL: "https://apify.example.test",
+    };
+
+    expect(loadApifyConfig(env)).toEqual({
+      token: "test-apify-token",
+      baseUrl: "https://apify.example.test",
+    });
+  });
 });
