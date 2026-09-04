@@ -77,6 +77,29 @@ describe("buildLiveDependencies", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("uses the real Apify crawl port when APIFY_TOKEN is present without network I/O", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const liveSessionFactory = vi.spyOn(
+      modelarkLiveSessionModule,
+      "createModelArkLiveSessionPort",
+    );
+
+    buildLiveDependencies({
+      ...VALID_ENV,
+      APIFY_TOKEN: "test-apify-token",
+    });
+
+    const crawl = liveSessionFactory.mock.calls[0]?.[0].crawl;
+    const stubModulePath = "../../agent/stub-crawl-port";
+    const { stubCrawlPort } = await import(stubModulePath);
+    expect(crawl).not.toBe(stubCrawlPort);
+    expect(crawl).toEqual(
+      expect.objectContaining({ fetch: expect.any(Function) }),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("keeps the always-miss lookup when DATABASE_URL is absent", async () => {
     const dependencies = buildLiveDependencies(VALID_ENV);
 
