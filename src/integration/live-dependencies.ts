@@ -16,9 +16,7 @@ import * as seedreamModule from "./modelark-seedream-image-port";
 import { createPersistingLiveSessionPort } from "./persisting-live-session-port";
 import { createPostgresQueryExecutor } from "./postgres-query-executor";
 import { createRepositoryTrendCardLookup } from "./repository-trend-card-lookup";
-
-// P3 seller auth deferred; demo seller id until real auth lands.
-const DEMO_SELLER_ID = "demo-seller";
+import { DEMO_SELLER_ID } from "./demo-seller";
 
 export function buildLiveDependencies(
   env: NodeJS.ProcessEnv = process.env,

@@ -12,6 +12,13 @@ import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
 
 export function DesignStudioScreen({ card }: { card: TrendCard }) {
   const [started, setStarted] = useState(false);
+  const [runId] = useState(() => crypto.randomUUID());
+  const [idempotencyKey] = useState(() => `publish-${runId}`);
+  const [designAssetUrl, setDesignAssetUrl] = useState<string>();
+  const [publishState, setPublishState] = useState<
+    "idle" | "publishing" | "published" | "error"
+  >("idle");
+  const [publishedUrl, setPublishedUrl] = useState<string>();
   const eventSource = useMemo(() => {
     if (!started) {
       return undefined;
@@ -19,7 +26,7 @@ export function DesignStudioScreen({ card }: { card: TrendCard }) {
 
     return createSseUiEventSource({
       url: "/api/live",
-      runId: crypto.randomUUID(),
+      runId,
       request: {
         kind: "generate-design",
         crawl: {
@@ -33,7 +40,54 @@ export function DesignStudioScreen({ card }: { card: TrendCard }) {
       fetch: globalThis.fetch.bind(globalThis),
       maxReconnects: 1,
     });
-  }, [card, started]);
+  }, [card, runId, started]);
+
+  async function publishDesign(): Promise<void> {
+    if (!designAssetUrl || publishState === "publishing") {
+      return;
+    }
+
+    setPublishState("publishing");
+    setPublishedUrl(undefined);
+    try {
+      const response = await globalThis.fetch("/api/publish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: runId,
+          idempotencyKey,
+          design: {
+            assetUrl: designAssetUrl,
+            title: card.seed,
+            description: card.recommendation.action,
+            tags: [],
+            market: card.market,
+            productType: card.productType,
+          },
+        }),
+      });
+      if (!response.ok) {
+        setPublishState("error");
+        return;
+      }
+
+      const result = (await response.json()) as unknown;
+      if (
+        typeof result === "object" &&
+        result !== null &&
+        "publication" in result &&
+        typeof result.publication === "object" &&
+        result.publication !== null &&
+        "publishedUrl" in result.publication &&
+        typeof result.publication.publishedUrl === "string"
+      ) {
+        setPublishedUrl(result.publication.publishedUrl);
+      }
+      setPublishState("published");
+    } catch {
+      setPublishState("error");
+    }
+  }
 
   return (
     <AppShell>
@@ -73,7 +127,10 @@ export function DesignStudioScreen({ card }: { card: TrendCard }) {
 
         <Panel className="overflow-hidden p-6">
           {started && eventSource ? (
-            <LiveTheater eventSource={eventSource} />
+            <LiveTheater
+              eventSource={eventSource}
+              onImageReady={setDesignAssetUrl}
+            />
           ) : (
             <div className="flex min-h-72 flex-col items-center justify-center rounded-2xl bg-indigo-50 p-8 text-center">
               <h2 className="text-xl font-semibold text-slate-950">
@@ -92,6 +149,40 @@ export function DesignStudioScreen({ card }: { card: TrendCard }) {
               </button>
             </div>
           )}
+
+          <div className="mt-5 border-t border-slate-200 pt-5">
+            <button
+              className={`${primaryActionClass} disabled:cursor-not-allowed disabled:opacity-50`}
+              disabled={!designAssetUrl || publishState === "publishing"}
+              onClick={() => void publishDesign()}
+              type="button"
+            >
+              {publishState === "publishing"
+                ? "Publishing…"
+                : "Publish to Printerval"}
+            </button>
+            {publishState === "published" ? (
+              <p className="mt-3 text-sm font-medium text-emerald-700" role="status">
+                Published to Printerval successfully.
+                {publishedUrl ? (
+                  <>
+                    {" "}
+                    <a
+                      className="underline underline-offset-2"
+                      href={publishedUrl}
+                    >
+                      View publication
+                    </a>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+            {publishState === "error" ? (
+              <p className="mt-3 text-sm text-red-700" role="alert">
+                Publishing failed. Please try again.
+              </p>
+            ) : null}
+          </div>
         </Panel>
       </div>
     </AppShell>

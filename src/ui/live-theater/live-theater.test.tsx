@@ -1,5 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { TrendCard, UiEvent } from "../../../packages/contracts";
 import type { UiEventSource } from "./event-source";
@@ -144,5 +144,48 @@ describe("LiveTheater", () => {
     });
     expect(await screen.findByText("Analysis complete")).toBeInTheDocument();
     expect(screen.getByText(answerText)).toBeInTheDocument();
+  });
+
+  it("reports each distinct generated image URL exactly once", async () => {
+    const eventSource = new FakeUiEventSource();
+    const onImageReady = vi.fn();
+    render(
+      <LiveTheater
+        eventSource={eventSource}
+        onImageReady={onImageReady}
+      />,
+    );
+
+    await act(async () => {
+      eventSource.emit({
+        id: "image-1",
+        type: "image:ready",
+        url: "https://tos.example/generated.png",
+      });
+    });
+    await act(async () => {
+      eventSource.emit({
+        id: "image-2",
+        type: "image:ready",
+        url: "https://tos.example/generated.png",
+      });
+    });
+    await act(async () => {
+      eventSource.emit({
+        id: "image-3",
+        type: "image:ready",
+        url: "https://tos.example/generated-v2.png",
+      });
+    });
+
+    expect(onImageReady).toHaveBeenCalledTimes(2);
+    expect(onImageReady).toHaveBeenNthCalledWith(
+      1,
+      "https://tos.example/generated.png",
+    );
+    expect(onImageReady).toHaveBeenNthCalledWith(
+      2,
+      "https://tos.example/generated-v2.png",
+    );
   });
 });

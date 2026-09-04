@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { formatCrawlSource, formatOpportunityScore } from "../formatters";
 import {
@@ -11,10 +11,15 @@ import type { UiEventSource } from "./event-source";
 
 type LiveTheaterProps = {
   eventSource: UiEventSource;
+  onImageReady?: (url: string) => void;
 };
 
-export function LiveTheater({ eventSource }: LiveTheaterProps) {
+export function LiveTheater({
+  eventSource,
+  onImageReady,
+}: LiveTheaterProps) {
   const [state, setState] = useState(createInitialCreatorViewState);
+  const reportedImageUrls = useRef(new Set<string>());
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +45,18 @@ export function LiveTheater({ eventSource }: LiveTheaterProps) {
 
   const latestSource = state.scannedSources.at(-1);
   const latestImage = state.imageUrls.at(-1);
+
+  useEffect(() => {
+    if (
+      !latestImage ||
+      !onImageReady ||
+      reportedImageUrls.current.has(latestImage)
+    ) {
+      return;
+    }
+    reportedImageUrls.current.add(latestImage);
+    onImageReady(latestImage);
+  }, [latestImage, onImageReady]);
 
   let status = "Waiting to start";
   if (state.streamStatus === "done") {
