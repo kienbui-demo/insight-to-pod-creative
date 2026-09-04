@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CrawlRequest } from "../../../packages/contracts";
 import * as modelarkLiveSessionModule from "../../agent/modelark-live-session";
+import { alwaysMissTrendCardLookup } from "../always-miss-trend-card-lookup";
 import { buildLiveDependencies } from "../live-dependencies";
 import * as seedreamModule from "../modelark-seedream-image-port";
 
@@ -74,5 +75,24 @@ describe("buildLiveDependencies", () => {
       (liveSessionOptions as unknown as { crawl: unknown }).crawl,
     ).toBe(stubCrawlPort);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the always-miss lookup when DATABASE_URL is absent", async () => {
+    const dependencies = buildLiveDependencies(VALID_ENV);
+
+    expect(dependencies.lookup).toBe(alwaysMissTrendCardLookup);
+    await expect(dependencies.lookup.lookup(CRAWL)).resolves.toEqual({
+      kind: "miss",
+    });
+  });
+
+  it("selects a repository-backed lookup when DATABASE_URL is present", () => {
+    const dependencies = buildLiveDependencies({
+      ...VALID_ENV,
+      DATABASE_URL: "postgresql://user:pass@localhost:5432/db",
+      ARK_EMBEDDING_MODEL: "skylark-embedding-vision-251215",
+    });
+
+    expect(dependencies.lookup).not.toBe(alwaysMissTrendCardLookup);
   });
 });

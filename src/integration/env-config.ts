@@ -5,6 +5,7 @@ export interface ModelArkConfig {
   agentVersion: number;
   environmentId: string;
   seedreamModel: string;
+  embeddingModel: string;
 }
 
 type ModelArkEnvKey =
@@ -32,6 +33,8 @@ export function loadModelArkConfig(
   const environmentId = requiredEnv(env, "ARK_ENVIRONMENT_ID");
   const seedreamModel =
     env.ARK_SEEDREAM_MODEL || "seedream-5-0-lite-260128";
+  const embeddingModel =
+    env.ARK_EMBEDDING_MODEL || "skylark-embedding-vision-251215";
   const agentVersion = Number(agentVersionValue);
 
   if (!Number.isInteger(agentVersion) || agentVersion <= 0) {
@@ -45,5 +48,6 @@ export function loadModelArkConfig(
     agentVersion,
     environmentId,
     seedreamModel,
+    embeddingModel,
   };
 }
