@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { TrendCard } from "../../../packages/contracts";
+import { InMemoryMetricSink } from "../../monitoring/in-memory-metric-sink";
 import {
   PostgresTrendCardRepository,
   type EmbeddingProvider,
@@ -79,6 +80,82 @@ class MockEmbeddingProvider implements EmbeddingProvider {
 }
 
 describe("PostgresTrendCardRepository", () => {
+  describe("save", () => {
+    it("upserts a card WITH embedding", async () => {
+      const executor = new MockQueryExecutor([]);
+      const metricSink = new InMemoryMetricSink();
+      const repository = new PostgresTrendCardRepository(
+        executor,
+        new MockEmbeddingProvider([0.1, 0.2]),
+        metricSink,
+      );
+      const embedding = [0.1, 0.2, -0.3];
+
+      await repository.save(EXPECTED_CARD, embedding);
+
+      expect(executor.calls).toHaveLength(1);
+      expect(executor.calls[0].sql).toContain("INSERT INTO trend_cards");
+      expect(executor.calls[0].sql).toContain(
+        "ON CONFLICT (id) DO UPDATE",
+      );
+      expect(executor.calls[0].sql).toContain("$14::vector");
+      expect(executor.calls[0].parameters[13]).toBe(
+        JSON.stringify(embedding),
+      );
+      expect(metricSink.snapshot().counters).toContainEqual({
+        name: "ptv_infra_operation_total",
+        labels: {
+          component: "postgres",
+          operation: "trend_card_save",
+          outcome: "success",
+        },
+        value: 1,
+      });
+    });
+
+    it("upserts a card WITHOUT embedding passes null", async () => {
+      const executor = new MockQueryExecutor([]);
+      const repository = new PostgresTrendCardRepository(
+        executor,
+        new MockEmbeddingProvider([0.1, 0.2]),
+      );
+
+      await repository.save(EXPECTED_CARD);
+
+      expect(executor.calls).toHaveLength(1);
+      expect(executor.calls[0].parameters[13]).toBeNull();
+      expect(executor.calls[0].sql).toContain(
+        "COALESCE(EXCLUDED.embedding",
+      );
+    });
+
+    it("propagates + records error", async () => {
+      const failure = new Error("database unavailable");
+      const executor: QueryExecutor = {
+        async query() {
+          throw failure;
+        },
+      };
+      const metricSink = new InMemoryMetricSink();
+      const repository = new PostgresTrendCardRepository(
+        executor,
+        new MockEmbeddingProvider([0.1, 0.2]),
+        metricSink,
+      );
+
+      await expect(repository.save(EXPECTED_CARD)).rejects.toBe(failure);
+      expect(metricSink.snapshot().counters).toContainEqual({
+        name: "ptv_infra_operation_total",
+        labels: {
+          component: "postgres",
+          operation: "trend_card_save",
+          outcome: "error",
+        },
+        value: 1,
+      });
+    });
+  });
+
   it("lists recent cards with a parameterized limit and maps every row", async () => {
     const secondRow = {
       ...DATABASE_ROW,

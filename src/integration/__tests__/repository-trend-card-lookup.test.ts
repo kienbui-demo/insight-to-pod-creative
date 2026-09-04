@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { CrawlRequest } from "../../../packages/contracts";
+import type { CrawlRequest, TrendCard } from "../../../packages/contracts";
 import { CACHE_SIM_THRESHOLD } from "../../../packages/config/cache.config";
 import { COMPLETE_TREND_CARD } from "../../agent/__fixtures__/trend-card";
 import type {
@@ -19,6 +19,7 @@ const CRAWL = {
 } satisfies CrawlRequest;
 
 class FakeTrendCardRepository implements TrendCardRepository {
+  readonly savedCards: TrendCard[] = [];
   readonly exactKeys: CacheKey[] = [];
   readonly similarKeys: CacheKey[] = [];
 
@@ -26,6 +27,10 @@ class FakeTrendCardRepository implements TrendCardRepository {
     private readonly exactResult: typeof COMPLETE_TREND_CARD | null,
     private readonly similarResult: SimilarityMatch | null,
   ) {}
+
+  async save(card: TrendCard): Promise<void> {
+    this.savedCards.push(card);
+  }
 
   async listRecent() {
     return [];

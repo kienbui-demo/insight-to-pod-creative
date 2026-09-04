@@ -17,10 +17,15 @@ interface FakeRepositoryAnswers {
 }
 
 export class FakeTrendCardRepository {
+  readonly saveCalls: TrendCard[] = [];
   readonly findExactCalls: FakeCacheKey[] = [];
   readonly findSimilarCalls: FakeCacheKey[] = [];
 
   constructor(private readonly answers: FakeRepositoryAnswers = {}) {}
+
+  async save(card: TrendCard): Promise<void> {
+    this.saveCalls.push(card);
+  }
 
   async listRecent(): Promise<TrendCard[]> {
     return [];

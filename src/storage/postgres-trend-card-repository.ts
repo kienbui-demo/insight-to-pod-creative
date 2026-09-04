@@ -107,6 +107,82 @@ export class PostgresTrendCardRepository implements TrendCardRepository {
     });
   }
 
+  async save(card: TrendCard, embedding?: readonly number[]): Promise<void> {
+    try {
+      await this.executor.query(
+        `INSERT INTO trend_cards (
+         id,
+         market,
+         seed,
+         product_type,
+         opportunity_score,
+         confidence,
+         available_sources,
+         missing_sources,
+         trend_series,
+         reference_images,
+         competitors,
+         recommendation,
+         freshness_tier,
+         embedding,
+         updated_at
+       )
+       VALUES (
+         $1,
+         $2,
+         $3,
+         $4,
+         $5,
+         $6,
+         $7::jsonb,
+         $8::jsonb,
+         $9::jsonb,
+         $10::jsonb,
+         $11::jsonb,
+         $12::jsonb,
+         $13,
+         $14::vector,
+         now()
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         market = EXCLUDED.market,
+         seed = EXCLUDED.seed,
+         product_type = EXCLUDED.product_type,
+         opportunity_score = EXCLUDED.opportunity_score,
+         confidence = EXCLUDED.confidence,
+         available_sources = EXCLUDED.available_sources,
+         missing_sources = EXCLUDED.missing_sources,
+         trend_series = EXCLUDED.trend_series,
+         reference_images = EXCLUDED.reference_images,
+         competitors = EXCLUDED.competitors,
+         recommendation = EXCLUDED.recommendation,
+         freshness_tier = EXCLUDED.freshness_tier,
+         embedding = COALESCE(EXCLUDED.embedding, trend_cards.embedding),
+         updated_at = now()`,
+        [
+          card.id,
+          card.market,
+          card.seed,
+          card.productType ?? null,
+          card.opportunityScore,
+          card.confidence,
+          JSON.stringify(card.availableSources),
+          JSON.stringify(card.missingSources),
+          JSON.stringify(card.trendSeries),
+          JSON.stringify(card.referenceImages),
+          card.competitors ? JSON.stringify(card.competitors) : null,
+          JSON.stringify(card.recommendation),
+          card.freshnessTier,
+          embedding === undefined ? null : JSON.stringify(embedding),
+        ],
+      );
+      this.recordOperation("trend_card_save", "success");
+    } catch (error) {
+      this.recordOperation("trend_card_save", "error");
+      throw error;
+    }
+  }
+
   async listRecent(limit: number): Promise<TrendCard[]> {
     let result: QueryResult<TrendCardRow>;
     try {

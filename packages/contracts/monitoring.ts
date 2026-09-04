@@ -17,6 +17,7 @@ export type ModelArkOperation =
   | "submit_tool_result";
 
 export type PostgresOperation =
+  | "trend_card_save"
   | "trend_card_exact_query"
   | "seed_embedding"
   | "trend_card_semantic_query"
