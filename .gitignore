@@ -19,3 +19,12 @@
 *.log
 *.tsbuildinfo
 .DS_Store
+
+# recon / provisioning artifacts (local only)
+recon-*.txt
+provision-*.sh
+record-*.py
+record-*.json
+
+# API contract reference docs (local only)
+/references/
