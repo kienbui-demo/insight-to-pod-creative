@@ -45,6 +45,7 @@ Printerval POD sellers/designers must do heavy market research before designing 
 - Instagram / YouTube sources (Phase 2).
 - Full automated eval pipeline (Phase 2).
 - Multi-region, auto-scaling, multi-language UI (Phase 2).
+- Credit metering + seller authentication for metered actions (Phase 2). The credit contracts, config (packages/config/credits.config.ts), and DB tables (credit_accounts, credit_debit_decisions, credit_ledger_entries) already exist, but are NOT wired into the composition root: buildLiveDependencies returns no credits/authenticateSeller, so live-route.ts takes the unmetered path (guarded by its `monetized` check, dong 160-168 — not a crash). Deferred work (was called "P3" in review): (a) a real PostgresCreditRepository implementing the 5-method CreditRepository contract with idempotency + optimistic locking (version column) + refund-on-failure; (b) a seller authentication mechanism (none exists app-wide today — needs an arch decision: stub seller-id vs header vs real auth); (c) wiring both into buildLiveDependencies. Business intent in §6 (secondary revenue + abuse guard). Until shipped, generate-design / deep-dive run free and unauthenticated.
 
 ## 8. Acceptance signals
 
