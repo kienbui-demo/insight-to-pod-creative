@@ -116,3 +116,37 @@ C4 will NOT touch:
 
 ## Suggested parallelism
 After Phase A gate: B1, B2, B3, B5, B8 can start simultaneously (disjoint dirs). B4 waits on B1/B2 record shape; B6 pairs with B8 via C4 contract; B7 can start anytime after A2. Merge each via the queue.
+
+## Phase D — Real-API integration (P-series, post-MVP "grill")
+
+> Context: Phase A/B/C above froze the MVP build plan (mocked/stubbed transports). During the real-API integration phase (Apify + ModelArk + Seedream + Postgres), a follow-up series P1–P8 emerged to replace mocks with live transports and wire the composition root. This block back-ports that series into tasks.md so this file stays the single source of truth. Same rule holds: contracts frozen; explicit-path commits; serialized hotspots.
+
+Frozen files (do NOT modify): `src/bff/types.ts`, `src/integration/live-route.ts`, `src/ui/live-theater/*`, `src/bff/router.ts`, `src/integration/live-dependencies.ts`, `src/integration/env-config.ts`, `packages/contracts/*`, all `.env*` files, and the `submitCustomToolResult` wire-shape in `src/agent/modelark-managed-agent-client.ts`.
+
+| ID | Feature | Owner dir(s) | Status | Notes |
+|-|-|-|-|-|
+| **P1** | Replace mock TREND_CARDS with real warehouse data in UI | `app/page.tsx`, `src/ui/*` | 🟢 Done (partial) | `buildWarehouseReader()` is PRIMARY; mock `TREND_CARDS` + hardcoded `MOCK_CARD_ID` remain as FALLBACK when warehouse is unavailable. Full mock removal deferred. |
+| **P2** | Wire Publish-to-Printerval (FR5 GMV action) | `src/monetization/*`, `src/integration/*` | 🟡 Done (SIMULATED) | End-to-end publish is simulated (commit 9c8cb57). `src/adapters/printerval/` does NOT exist — no real Printerval API call yet. |
+| **P3** | Credit metering + seller authentication for metered actions | `src/monetization/*`, `src/integration/live-dependencies.ts` | 🔴 **DEFERRED → Phase 2** | Per spec.md §7. Contracts + `packages/config/credits.config.ts` + DB tables (`credit_accounts`, `credit_debit_decisions`, `credit_ledger_entries`) EXIST but are NOT wired: `buildLiveDependencies` returns no `credits`/`authenticateSeller`, so `live-route.ts` runs the UNMETERED path (guarded by its `monetized` check, lines 160-168 — not a crash). Deferred work: (a) real `PostgresCreditRepository` (5-method contract, idempotency + optimistic locking `version` column + refund-on-failure); (b) seller-auth mechanism (none exists app-wide — needs arch decision: stub / header / real auth); (c) wire both into `buildLiveDependencies`. |
+| **P4** | Persist generated designs into `seller_projects` | `src/integration/live-dependencies.ts`, `src/storage/*` | 🟢 Done | Wired via `PostgresSellerProjectRepository`. |
+| **P5** | Warehouse ingestion job (nạp trend_cards + backfill embedding) | `src/warehouse/*`, `src/storage/*` | 🟢 Done | Write path: ingest trend_cards + backfill pgvector embeddings. |
+| **P6** | Wire Design Studio UI → generate-design (MA + Seedream thật) | `app/*`, `src/ui/*`, `src/agent/*` | 🟢 Done | Live generate-design lane: crawl → MA session → real Seedream image. |
+| **P7** | Wire Deep-dive UI → deep-dive question (MA thật) | `app/*`, `src/ui/*`, `src/agent/*` | 🟢 Done | Live deep-dive lane: crawl → answer. |
+| **P8** | Live e2e test lane (Apify + MA + Seedream thật) | `tests/live/*` | 🟢 Done | Opt-in, env-gated (`RUN_LIVE_TESTS=1` / `RUN_LIVE_DEEPDIVE=1`); excluded from default vitest. |
+
+### Phase D follow-ups (live-lane hardening)
+
+| Fix | Area | Status | Commit |
+|-|-|-|-|
+| MA decoder benign-ack bug | `src/agent/*` | 🟢 Done | — |
+| MA tool-result wire shape (`content`+`is_error`, not `result`) | `src/agent/*` | 🟢 Done | — |
+| Parallelize image tool fulfillment in `pump()` (latency) | `src/agent/modelark-live-session.ts` | 🟢 Done | — |
+| Fix deep-dive/generate-design live-lane HTTP 400 (dedup re-listed tool_use) | `src/agent/modelark-live-session.ts` + dedupe test | 🟢 Done | 6dd6404 |
+
+### Remaining to complete the MVP product (active pending)
+
+- **P1 (finish):** fully replace mock `TREND_CARDS` / `MOCK_CARD_ID` in Discover/Studio UI with real `/api/live` warehouse data (remove fallback path).
+- **P4 (verify):** confirm generated designs actually persist rows into `seller_projects` (table exists but was observed empty).
+- Current plan order: **P1 → P4**.
+
+> Deferred to Phase 2 (out of MVP scope, spec.md §7): P3 credit metering + seller auth; real Printerval adapter (P2 hardening); Instagram/YouTube sources; full eval pipeline; multi-region/multi-language.
