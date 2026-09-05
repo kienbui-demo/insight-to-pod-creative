@@ -102,6 +102,7 @@ class ModelArkLiveRun implements LiveRun {
   private readonly output = new AsyncEventQueue<RawMaEvent>();
   private readonly failedSources = new Set<CrawlSource>();
   private readonly toolUses = new Map<string, ManagedAgentEvent>();
+  private readonly fulfilledToolUses = new Set<string>();
   private crawlContext: Omit<CrawlPortInput, "source"> | undefined;
 
   constructor(
@@ -217,6 +218,9 @@ class ModelArkLiveRun implements LiveRun {
             ReturnType<SeedreamImagePort["generate"]>
           >();
           for (const toolUseId of event.stop_reason.event_ids) {
+            if (this.fulfilledToolUses.has(toolUseId)) {
+              continue;
+            }
             const toolUse = this.toolUses.get(toolUseId);
             if (
               toolUse?.type !== "agent.custom_tool_use" ||
@@ -230,6 +234,9 @@ class ModelArkLiveRun implements LiveRun {
           }
 
           for (const toolUseId of event.stop_reason.event_ids) {
+            if (this.fulfilledToolUses.has(toolUseId)) {
+              continue;
+            }
             const toolUse = this.toolUses.get(toolUseId);
             if (toolUse?.type !== "agent.custom_tool_use") {
               continue;
@@ -276,6 +283,7 @@ class ModelArkLiveRun implements LiveRun {
                 result,
               } satisfies ManagedAgentEvent;
               await this.session.submitCustomToolResult(resultEvent);
+              this.fulfilledToolUses.add(toolUseId);
               for (const mapped of mapManagedAgentEvents([resultEvent])) {
                 this.output.push(mapped);
               }
@@ -299,6 +307,7 @@ class ModelArkLiveRun implements LiveRun {
               result: await imageResultPromise,
             } satisfies ManagedAgentEvent;
             await this.session.submitCustomToolResult(resultEvent);
+            this.fulfilledToolUses.add(toolUseId);
             for (const mapped of mapManagedAgentEvents([resultEvent])) {
               this.output.push(mapped);
             }
