@@ -212,6 +212,23 @@ class ModelArkLiveRun implements LiveRun {
           event.type === "session.status_idle" &&
           event.stop_reason.type === "requires_action"
         ) {
+          const imageResultPromises = new Map<
+            string,
+            ReturnType<SeedreamImagePort["generate"]>
+          >();
+          for (const toolUseId of event.stop_reason.event_ids) {
+            const toolUse = this.toolUses.get(toolUseId);
+            if (
+              toolUse?.type !== "agent.custom_tool_use" ||
+              toolUse.name !== "generate_design_image"
+            ) {
+              continue;
+            }
+            const resultPromise = this.seedream.generate(toolUse.input);
+            void resultPromise.catch(() => undefined);
+            imageResultPromises.set(toolUseId, resultPromise);
+          }
+
           for (const toolUseId of event.stop_reason.event_ids) {
             const toolUse = this.toolUses.get(toolUseId);
             if (toolUse?.type !== "agent.custom_tool_use") {
@@ -265,13 +282,21 @@ class ModelArkLiveRun implements LiveRun {
               continue;
             }
 
+            const imageResultPromise = imageResultPromises.get(toolUseId);
+            if (
+              toolUse.name !== "generate_design_image" ||
+              imageResultPromise === undefined
+            ) {
+              continue;
+            }
+
             const resultEvent = {
               id: `${toolUseId}:result`,
               type: "user.custom_tool_result",
               custom_tool_use_id: toolUseId,
               name: "generate_design_image",
               input: toolUse.input,
-              result: await this.seedream.generate(toolUse.input),
+              result: await imageResultPromise,
             } satisfies ManagedAgentEvent;
             await this.session.submitCustomToolResult(resultEvent);
             for (const mapped of mapManagedAgentEvents([resultEvent])) {
