@@ -137,6 +137,18 @@ describe("provisional ModelArk custom-tool decoder", () => {
     expect(decodeModelArkManagedAgentEvent(event)).toEqual(event);
   });
 
+  it("ignores a benign user.custom_tool_result crawl ack (is_error null, no content/name)", () => {
+    const event = {
+      id: "sevt-20260905033826-du807:result",
+      type: "user.custom_tool_result",
+      processed_at: "2026-09-05T03:38:26Z",
+      custom_tool_use_id: "sevt-20260905033826-du807",
+      is_error: null,
+    };
+
+    expect(decodeModelArkManagedAgentEvent(event)).toBeNull();
+  });
+
   it("rejects generate_design_image when a reference source type is invalid", () => {
     const event = {
       id: "ma-design-invalid-reference-type",

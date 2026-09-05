@@ -219,6 +219,9 @@ export function decodeModelArkManagedAgentEvent(
       ) {
         return null;
       }
+      if (isString(value.custom_tool_use_id)) {
+        return null;
+      }
       break;
     case "agent.output":
       if (
@@ -481,11 +484,21 @@ class ModelArkManagedAgentSession implements ManagedAgentSessionPort {
 
   async submitCustomToolResult(event: ManagedAgentEvent): Promise<void> {
     await this.measured("submit_tool_result", async () => {
+      const wireEvent =
+        event.type === "user.custom_tool_result"
+          ? {
+              id: event.id,
+              type: event.type,
+              custom_tool_use_id: event.custom_tool_use_id,
+              content: [{ type: "text", text: JSON.stringify(event.result) }],
+              is_error: !event.result.ok,
+            }
+          : event;
       await expectOk(
         await this.fetchPort(sessionUrl(this.baseUrl, this.sessionId, "/events"), {
           method: "POST",
           headers: jsonHeaders(this.apiKey),
-          body: JSON.stringify({ events: [event] }),
+          body: JSON.stringify({ events: [wireEvent] }),
         }),
       );
     });
