@@ -16,7 +16,7 @@ export function DiscoverScreen({
   source,
 }: {
   cards: readonly TrendCard[];
-  source: "live" | "sample";
+  source: "live" | "empty";
 }) {
   const eventSource = useMemo(() => {
     const seedCard = cards[0] ?? {
@@ -79,10 +79,18 @@ export function DiscoverScreen({
             </h2>
           </div>
           <p className="text-sm text-slate-500">
-            {source === "live" ? "Live warehouse" : "Sample data"}
+            {source === "live"
+              ? "Live warehouse"
+              : "Warehouse not configured"}
           </p>
         </div>
-        <TrendCardGrid cards={cards} />
+        {cards.length === 0 ? (
+          <p className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">
+            No trend cards yet — run an ingestion job or a live scan.
+          </p>
+        ) : (
+          <TrendCardGrid cards={cards} />
+        )}
       </section>
     </AppShell>
   );

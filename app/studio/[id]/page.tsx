@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 
 import { buildWarehouseReader } from "../../../src/integration/warehouse-reader";
-import { findTrendCard } from "../../../src/ui/mocks/trend-cards";
 import { DesignStudioScreen } from "../../../src/ui/studio/design-studio-screen";
 
 export default async function StudioPage({
@@ -11,7 +10,7 @@ export default async function StudioPage({
 }) {
   const { id } = await params;
   const reader = buildWarehouseReader();
-  const card = reader ? await reader.findById(id) : findTrendCard(id);
+  const card = reader ? await reader.findById(id) : null;
   if (!card) {
     notFound();
   }
