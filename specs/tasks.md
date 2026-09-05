@@ -125,7 +125,7 @@ Frozen files (do NOT modify): `src/bff/types.ts`, `src/integration/live-route.ts
 
 | ID | Feature | Owner dir(s) | Status | Notes |
 |-|-|-|-|-|
-| **P1** | Replace mock TREND_CARDS with real warehouse data in UI | `app/page.tsx`, `src/ui/*` | 🟢 Done (partial) | `buildWarehouseReader()` is PRIMARY; mock `TREND_CARDS` + hardcoded `MOCK_CARD_ID` remain as FALLBACK when warehouse is unavailable. Full mock removal deferred. |
+| **P1** | Replace mock TREND_CARDS with real warehouse data in UI | `app/page.tsx`, `src/ui/*` | 🟢 Done | Warehouse-only. Deleted `src/ui/mocks/trend-cards.ts`; removed `findTrendCard` fallbacks (detail routes now `findById` → `notFound`); `page.tsx` returns `[]` + `source="empty"` when no `DATABASE_URL`; Discover renders empty-state; `MOCK_CARD_ID` nav entries removed (keep Discover). tsc/eslint/vitest(452) green. Commit `e9889a7`. |
 | **P2** | Wire Publish-to-Printerval (FR5 GMV action) | `src/monetization/*`, `src/integration/*` | 🟡 Done (SIMULATED) | End-to-end publish is simulated (commit 9c8cb57). `src/adapters/printerval/` does NOT exist — no real Printerval API call yet. |
 | **P3** | Credit metering + seller authentication for metered actions | `src/monetization/*`, `src/integration/live-dependencies.ts` | 🔴 **DEFERRED → Phase 2** | Per spec.md §7. Contracts + `packages/config/credits.config.ts` + DB tables (`credit_accounts`, `credit_debit_decisions`, `credit_ledger_entries`) EXIST but are NOT wired: `buildLiveDependencies` returns no `credits`/`authenticateSeller`, so `live-route.ts` runs the UNMETERED path (guarded by its `monetized` check, lines 160-168 — not a crash). Deferred work: (a) real `PostgresCreditRepository` (5-method contract, idempotency + optimistic locking `version` column + refund-on-failure); (b) seller-auth mechanism (none exists app-wide — needs arch decision: stub / header / real auth); (c) wire both into `buildLiveDependencies`. |
 | **P4** | Persist generated designs into `seller_projects` | `src/integration/live-dependencies.ts`, `src/storage/*` | 🟢 Done | Wired via `PostgresSellerProjectRepository`. |
@@ -145,8 +145,8 @@ Frozen files (do NOT modify): `src/bff/types.ts`, `src/integration/live-route.ts
 
 ### Remaining to complete the MVP product (active pending)
 
-- **P1 (finish):** fully replace mock `TREND_CARDS` / `MOCK_CARD_ID` in Discover/Studio UI with real `/api/live` warehouse data (remove fallback path).
+- **P1 (finish):** ✅ DONE (commit `e9889a7`) — mock `TREND_CARDS` / `MOCK_CARD_ID` fully removed; Discover/Studio/Deep-dive are warehouse-only.
 - **P4 (verify):** confirm generated designs actually persist rows into `seller_projects` (table exists but was observed empty).
-- Current plan order: **P1 → P4**.
+- Current plan order: **P4 next** (P1 done).
 
 > Deferred to Phase 2 (out of MVP scope, spec.md §7): P3 credit metering + seller auth; real Printerval adapter (P2 hardening); Instagram/YouTube sources; full eval pipeline; multi-region/multi-language.
