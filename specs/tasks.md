@@ -190,7 +190,7 @@ Frozen files (do NOT modify): `src/bff/types.ts`, `src/integration/live-route.ts
 >
 > NOT unlocked / untouched: `src/integration/live-route.ts`, `src/bff/types.ts`, `packages/contracts/*`, `.env*`, `env-config.ts`, `submitCustomToolResult` wire-shape.
 >
-> STATUS 2026-09-06: Phase E E1-E5 merged. Re-freeze all Phase E unlocked files EXCEPT where E6 (below) needs them; `live-dependencies.ts` stays unlocked while E6 is pending.
+> STATUS 2026-09-06: Phase E E1-E6 merged. E6 (`2829c1e`) implemented client-side (sessionStorage) with no frozen-file changes, so `live-dependencies.ts` was NOT touched and can be re-frozen. All Phase E unlocked files are re-frozen.
 
 | ID | Feature | Owner dir(s) / files | Status | Lane | Notes |
 |-|-|-|-|-|-|
@@ -209,16 +209,16 @@ Frozen files (do NOT modify): `src/bff/types.ts`, `src/integration/live-route.ts
 | **D1** | FR12 detail-UI render (dashboard + 6-section report + "Act now" badge) | `src/ui/trends/__tests__/trend-card-detail.test.tsx` | ✅ Green |
 | **D2** | FR11-p2 wiring — `PostgresRunSessionRepository` when `DATABASE_URL` present, `InMemoryRunSessionRepository` when absent (constructor-options capture) | `src/integration/__tests__/live-dependencies.run-session-wiring.test.ts` | ✅ Green (2 tests) |
 | **D3** | FR13 regression — seed SQL has no `tos.example` + has `commons.wikimedia.org`; `next.config.ts` allows `commons.wikimedia.org` + `upload.wikimedia.org` | `src/integration/__tests__/reference-image-hosts.test.ts` | ✅ Green (2 tests) |
-| **D4** | FR11-p1 nav-persistence — CHARACTERIZATION: current `deep-dive-screen` keeps `turns` in local `useState`, so a remount loses prior turns (documents the E6 gap, not yet a failing RED) | `src/ui/deep-dive/__tests__/deep-dive-screen.test.tsx` (extended) | ✅ Green (characterization) |
+| **D4** | FR11-p1 nav-persistence — now a positive ASSERTION (flipped from characterization in E6 `2829c1e`): prior turns survive remount and rehydrate without re-fetch (FR10) | `src/ui/deep-dive/__tests__/deep-dive-screen.test.tsx` (extended) | ✅ Green (assertion) |
 
-### E6 — FR11 deep-dive nav-persistence (SPEC GAP, pending user approval)
+### E6 — FR11 deep-dive nav-persistence (✅ DONE `2829c1e`)
 
 > Architect finding: FR11 requires the deep-dive conversation to persist **across navigation** (leave the card and return → prior turns re-shown) AND **across process restarts**. E3 (`b341876`) satisfies the *restart* half (durable runId→MA-session in Postgres). The *navigation* half is NOT implemented: `deep-dive-screen.tsx` holds `turns` in local React `useState`, so unmount (navigating away) drops the conversation. D4 characterizes this gap as GREEN documentation. E6 would flip D4 to a RED failing test, then implement to GREEN.
 
 | ID | Feature | Owner dir(s) / files | Status | Lane | Notes |
 |-|-|-|-|-|-|
-| **E6** | Deep-dive turns persist across navigation (FR11 nav half) | `src/ui/deep-dive/deep-dive-screen.tsx` (+ a durable-turns read path; likely reload prior turns from `ma_run_sessions` / MA-session history on mount) + tests | ⏸️ Pending — **needs user approval to start** | Full TDD | On mount, reload prior deep-dive turns for the card from the durable store (Postgres `ma_run_sessions` + MA session history) instead of starting empty. RED first: convert D4 characterization into a failing "turns survive remount" assertion, then implement to GREEN. Reuses the Phase E `live-dependencies.ts` unlock; may need a scoped read-port addition (record in an unlock note before touching frozen files). |
+| **E6** | Deep-dive turns persist across navigation (FR11 nav half) | `src/ui/deep-dive/deep-dive-persistence.ts` (NEW), `src/ui/live-theater/replay-ui-event-source.ts` (NEW), `src/ui/live-theater/recording-ui-event-source.ts` (NEW), `src/ui/deep-dive/deep-dive-screen.tsx`, + tests | ✅ Done `2829c1e` | Full TDD | **Chosen architecture: client-side persistence, no backend/contract change.** `ma_run_sessions` only stores the runId→MA-session mapping (no turn transcript), so reloading turns from Postgres was infeasible without unfreezing contracts. Instead: a `DeepDiveTurnStore` over injectable `sessionStorage` (keyed `deep-dive-turns:${card.id}`, SSR-safe in-memory fallback, malformed-JSON tolerant) records every streamed `UiEvent` via a recording-tee source and rehydrates prior turns on mount via a network-free replay source — satisfying FR10 (no re-crawl on return). D4 flipped to a passing assertion; 8 files, tsc/eslint/full-vitest (93 files, 484 tests) green. No frozen files touched. |
 
 > SKIPPED this round (user decision 2026-09-06): Bug 2 - Postgres `ECONNREFUSED 127.0.0.1:5432` crashing the home page (`app/page.tsx` `listRecent(24)` with no try/catch). Not fixed now; revisit later.
 
-> Execution order (completed): **E4 ✅ -> E2 ✅ -> E1 ✅ -> E3 ✅ -> E5 ✅**, then test-hardening `3158ec9` ✅. Next candidate (pending approval): **E6** (FR11 navigation persistence). Rationale for original order: E4 had zero frozen-file coupling (fastest win + immediate seller value); E2/E1 shared the deep-dive lane; E3 was the durability backstop for E2; E5 was a small seed/config fix.
+> Execution order (completed): **E4 ✅ -> E2 ✅ -> E1 ✅ -> E3 ✅ -> E5 ✅**, then test-hardening `3158ec9` ✅, then **E6 ✅ `2829c1e`** (FR11 navigation persistence, client-side sessionStorage). Rationale for original order: E4 had zero frozen-file coupling (fastest win + immediate seller value); E2/E1 shared the deep-dive lane; E3 was the durability backstop for E2; E5 was a small seed/config fix.
