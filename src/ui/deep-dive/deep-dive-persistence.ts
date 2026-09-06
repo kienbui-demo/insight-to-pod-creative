@@ -1,6 +1,7 @@
 import type { UiEvent } from "../../../packages/contracts";
 
 export type PersistedTurn = {
+  turnId: string;
   runId: string;
   question: string;
   events: UiEvent[];
@@ -58,6 +59,7 @@ function isUiEvent(value: unknown): value is UiEvent {
 function isPersistedTurn(value: unknown): value is PersistedTurn {
   return (
     isRecord(value) &&
+    typeof value.turnId === "string" &&
     typeof value.runId === "string" &&
     typeof value.question === "string" &&
     Array.isArray(value.events) &&

@@ -29,11 +29,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function runIdOfCall(call: unknown[]): string {
+  const init = call[1] as RequestInit;
+  return (JSON.parse(String(init.body)) as { runId: string }).runId;
+}
+
 describe("DeepDiveScreen", () => {
   it("does not read persisted turns during initial render (SSR hydration-safe)", () => {
     const priorQuestion = "Persisted before reload?";
     const persisted = [
-      { runId: "prior-run", question: priorQuestion, events: [] },
+      {
+        turnId: "prior-turn",
+        runId: "prior-run",
+        question: priorQuestion,
+        events: [],
+      },
     ];
     const store = {
       load: () => persisted,
@@ -122,6 +132,89 @@ describe("DeepDiveScreen", () => {
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
     expect(screen.getByText(firstQuestion)).toBeInTheDocument();
     expect(screen.getByText(secondQuestion)).toBeInTheDocument();
+  });
+
+  it("sends every follow-up question with the same conversation runId", async () => {
+    const fetchSpy = vi.fn(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DeepDiveScreen card={CARD} />);
+
+    const askButton = screen.getByRole("button", { name: "Ask" });
+    const questionInput = screen.getByPlaceholderText(
+      "Ask about this opportunity…",
+    );
+    const firstQuestion = "What evidence supports this opportunity?";
+    const secondQuestion = "Which evidence matters most?";
+
+    fireEvent.change(questionInput, { target: { value: firstQuestion } });
+    fireEvent.click(askButton);
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByText("Analysis complete")).toBeInTheDocument(),
+    );
+
+    fireEvent.change(questionInput, { target: { value: secondQuestion } });
+    fireEvent.click(askButton);
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+
+    expect(runIdOfCall(fetchSpy.mock.calls[0])).toBe(
+      runIdOfCall(fetchSpy.mock.calls[1]),
+    );
+    expect(screen.getByText(firstQuestion)).toBeInTheDocument();
+    expect(screen.getByText(secondQuestion)).toBeInTheDocument();
+  });
+
+  it("resumes the same conversation runId after remount (durable MA session)", async () => {
+    const fetchSpy = vi.fn(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const firstQuestion = "What evidence supports this opportunity?";
+    const secondQuestion = "How should I act on that evidence?";
+    const { unmount } = render(<DeepDiveScreen card={CARD} />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Ask about this opportunity…"),
+      { target: { value: firstQuestion } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const firstRunId = runIdOfCall(fetchSpy.mock.calls[0]);
+    await waitFor(() =>
+      expect(screen.getByText("Analysis complete")).toBeInTheDocument(),
+    );
+
+    unmount();
+    render(<DeepDiveScreen card={CARD} />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Ask about this opportunity…"),
+      { target: { value: secondQuestion } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+
+    expect(runIdOfCall(fetchSpy.mock.calls[1])).toBe(firstRunId);
   });
 
   it("restores prior turns after remount (FR11 navigation persistence)", async () => {

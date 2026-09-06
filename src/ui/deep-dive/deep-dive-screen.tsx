@@ -36,7 +36,8 @@ function rehydrateTurn(turn: PersistedTurn): DeepDiveTurn {
 }
 
 function persistedTurns(turns: DeepDiveTurn[]): PersistedTurn[] {
-  return turns.map(({ runId, question, events }) => ({
+  return turns.map(({ turnId, runId, question, events }) => ({
+    turnId,
     runId,
     question,
     events,
@@ -53,10 +54,12 @@ export function DeepDiveScreen({
   const [question, setQuestion] = useState("");
   const [turns, setTurns] = useState<DeepDiveTurn[]>([]);
   const turnsRef = useRef(turns);
+  const conversationRunIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const restored = turnStore.load(card.id).map(rehydrateTurn);
     if (restored.length > 0) {
+      conversationRunIdRef.current = restored[0].runId;
       turnsRef.current = restored;
       setTurns(restored);
     }
@@ -69,10 +72,10 @@ export function DeepDiveScreen({
     setTurns(nextTurns);
   }
 
-  function recordEvent(runId: string, event: UiEvent): void {
+  function recordEvent(turnId: string, event: UiEvent): void {
     updateTurns(
       turnsRef.current.map((turn) =>
-        turn.runId === runId
+        turn.turnId === turnId
           ? { ...turn, events: [...turn.events, event] }
           : turn,
       ),
@@ -86,7 +89,9 @@ export function DeepDiveScreen({
       return;
     }
 
-    const runId = crypto.randomUUID();
+    conversationRunIdRef.current ??= crypto.randomUUID();
+    const runId = conversationRunIdRef.current;
+    const turnId = crypto.randomUUID();
     const liveEventSource = createSseUiEventSource({
       url: "/api/live",
       runId,
@@ -106,12 +111,12 @@ export function DeepDiveScreen({
     });
     const eventSource = createRecordingUiEventSource({
       source: liveEventSource,
-      onEvent: (streamedEvent) => recordEvent(runId, streamedEvent),
+      onEvent: (streamedEvent) => recordEvent(turnId, streamedEvent),
     });
 
     updateTurns([
       ...turnsRef.current,
-      { runId, question: trimmedQuestion, events: [], eventSource },
+      { turnId, runId, question: trimmedQuestion, events: [], eventSource },
     ]);
   }
 
@@ -158,13 +163,13 @@ export function DeepDiveScreen({
           <div className="mt-6 space-y-6">
             {turns.length > 0 ? (
               turns.map((turn) => (
-                <article className="space-y-3" key={turn.runId}>
+                <article className="space-y-3" key={turn.turnId}>
                   <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-900">
                     {turn.question}
                   </p>
                   <LiveTheater
                     eventSource={turn.eventSource}
-                    key={turn.runId}
+                    key={turn.turnId}
                   />
                 </article>
               ))
