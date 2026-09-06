@@ -104,4 +104,36 @@ describe("DeepDiveScreen", () => {
     expect(screen.getByText(firstQuestion)).toBeInTheDocument();
     expect(screen.getByText(secondQuestion)).toBeInTheDocument();
   });
+
+  it("does not yet persist prior turns across remount documents FR11 navigation persistence gap", async () => {
+    const fetchSpy = vi.fn(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const priorQuestion = "Will this question survive navigation?";
+    const { unmount } = render(<DeepDiveScreen card={CARD} />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Ask about this opportunity…"),
+      { target: { value: priorQuestion } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(screen.getByText(priorQuestion)).toBeInTheDocument();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+
+    unmount();
+    render(<DeepDiveScreen card={CARD} />);
+
+    expect(screen.queryByText(priorQuestion)).not.toBeInTheDocument();
+  });
 });
