@@ -123,6 +123,8 @@ After Phase A gate: B1, B2, B3, B5, B8 can start simultaneously (disjoint dirs).
 
 Frozen files (do NOT modify): `src/bff/types.ts`, `src/integration/live-route.ts`, `src/ui/live-theater/*`, `src/bff/router.ts`, `src/integration/live-dependencies.ts`, `src/integration/env-config.ts`, `packages/contracts/*`, all `.env*` files, and the `submitCustomToolResult` wire-shape in `src/agent/modelark-managed-agent-client.ts`.
 
+> WARNING: P9/P10 authorized unlock (user-approved 2026-09-06): `src/integration/live-dependencies.ts` is temporarily unlocked ONLY to wire `TrendCardLookupPort` into the live session and add the card-persisting write path. `src/bff/router.ts`, `src/bff/types.ts`, `src/integration/live-route.ts`, `packages/contracts/*`, and `.env*` stay frozen. Re-freeze `live-dependencies.ts` after P9/P10 merge.
+
 | ID | Feature | Owner dir(s) | Status | Notes |
 |-|-|-|-|-|
 | **P1** | Replace mock TREND_CARDS with real warehouse data in UI | `app/page.tsx`, `src/ui/*` | 🟢 Done | Warehouse-only. Deleted `src/ui/mocks/trend-cards.ts`; removed `findTrendCard` fallbacks (detail routes now `findById` → `notFound`); `page.tsx` returns `[]` + `source="empty"` when no `DATABASE_URL`; Discover renders empty-state; `MOCK_CARD_ID` nav entries removed (keep Discover). tsc/eslint/vitest(452) green. Commit `e9889a7`. |
@@ -133,6 +135,8 @@ Frozen files (do NOT modify): `src/bff/types.ts`, `src/integration/live-route.ts
 | **P6** | Wire Design Studio UI → generate-design (MA + Seedream thật) | `app/*`, `src/ui/*`, `src/agent/*` | 🟢 Done | Live generate-design lane: crawl → MA session → real Seedream image. |
 | **P7** | Wire Deep-dive UI → deep-dive question (MA thật) | `app/*`, `src/ui/*`, `src/agent/*` | 🟢 Done | Live deep-dive lane: crawl → answer. |
 | **P8** | Live e2e test lane (Apify + MA + Seedream thật) | `tests/live/*` | 🟢 Done | Opt-in, env-gated (`RUN_LIVE_TESTS=1` / `RUN_LIVE_DEEPDIVE=1`); excluded from default vitest. |
+| **P9** | Generate-design warehouse-first (no live crawl) | `src/agent/modelark-live-session.ts`, `src/integration/live-dependencies.ts` | 🟡 In progress | FR8. When a generate-design run matches a warehouse card, serve the MA `crawl` tool from card data (serve-from-warehouse) instead of calling Apify. MA still runs to build prompt + call Seedream. Cache-miss falls back to current live crawl. Requires unlocking `live-dependencies.ts` (frozen) to wire `TrendCardLookupPort` into the session. `router.ts` untouched. + vitest. |
+| **P10** | Seller-authored trend cards (create + persist to warehouse) | `app/*`, `src/ui/*`, `src/integration/*`, `src/storage/*` | 🟡 In progress | FR9. New seller seed-input UI → run `trend-card` kind → warehouse lookup first → genuine miss runs live crawl + synthesize → PERSIST final_card into `trend_cards` (currently live trend-card runs do NOT save the synthesized card — need a persisting write path/decorator) → seller generates design from it (warehouse-first per P9). + vitest. |
 
 ### Phase D follow-ups (live-lane hardening)
 
@@ -147,6 +151,8 @@ Frozen files (do NOT modify): `src/bff/types.ts`, `src/integration/live-route.ts
 
 - **P1 (finish):** ✅ DONE (commit `e9889a7`) — mock `TREND_CARDS` / `MOCK_CARD_ID` fully removed; Discover/Studio/Deep-dive are warehouse-only.
 - **P4 (verify):** ✅ DONE — verified against live Postgres: `seller_projects` holds 11 real rows, each with a Seedream `design_asset_url`, written via `createPersistingLiveSessionPort` on `seedream_image` events during live generate-design runs. Write path confirmed working end-to-end.
-- Current plan order: P1 ✅ + P4 ✅ done — MVP active-pending list is now clear (only P3 remains, DEFERRED to Phase 2).
+- Current plan order: P1 ✅ + P4 ✅ done. **Active work: P9 (generate-design warehouse-first, FR8) then P10 (seller-authored cards, FR9).** P3 remains DEFERRED to Phase 2.
+- **P9 (FR8):** 🟡 In progress — generate-design must reuse warehouse card data, never live-crawl. Root cause: `generate-design` skips the `lookup` cache-hit branch (only `trend-card` uses it) and MA's `crawl` tool always hits Apify. Fix: serve the MA `crawl` tool from the matched card at the session layer, fallback to live on miss.
+- **P10 (FR9):** 🟡 In progress — seller can author a card from a seed for topics absent from the warehouse; the synthesized card is persisted to `trend_cards` and reused. Depends on P9 (design gen from the new card is warehouse-first).
 
 > Deferred to Phase 2 (out of MVP scope, spec.md §7): P3 credit metering + seller auth; real Printerval adapter (P2 hardening); Instagram/YouTube sources; full eval pipeline; multi-region/multi-language.

@@ -25,6 +25,8 @@ Printerval POD sellers/designers must do heavy market research before designing 
 - FR5: Seller publishes the design to Printerval (the GMV action).
 - FR6: A secondary chat panel lets the seller deep-dive a specific opportunity on demand.
 - FR7: Confidence must reflect which sources were available (e.g. a missing source lowers and flags confidence).
+- FR8: Generating a design from an existing Trend Card MUST reuse that card's already-collected warehouse data. It MUST NOT trigger a fresh live multi-source crawl. WHY: the crawl already happened when the card was built; re-crawling on every design generation wastes latency + paid API spend and can produce a card-vs-design data mismatch. Live crawling belongs only to card creation (FR3), never to design generation.
+- FR9: When a seller wants a design for a topic that has no Trend Card yet, the seller can author their own card by supplying a seed (topic + market + product type). This runs the card-creation path (FR3: warehouse lookup first; only a genuine cache-miss triggers a live scan), the resulting card is saved to the warehouse for reuse, and the seller then generates a design from it (per FR8). WHY: keeps the product's "intelligence" (every design is grounded in a Trend Card) while still letting sellers pursue not-yet-precomputed topics; a seller-authored card benefits the next seller via the cache.
 
 ## 5. Non-functional requirements
 
@@ -52,3 +54,5 @@ Printerval POD sellers/designers must do heavy market research before designing 
 - A seller can go from "pick a holiday+market" → see scored opportunities → generate a draft design → publish, in one sitting.
 - A cache-miss topic returns a usable Trend Card via live scan with visible progress.
 - Removing a source (simulate TikTok down) still yields opportunities with lowered, flagged confidence.
+- Generating a design from an existing warehouse Trend Card completes WITHOUT any live crawl (no Apify call); the same seed re-run stays warehouse-served.
+- A seller can author a brand-new card from a seed for a topic absent from the warehouse; it is persisted and then usable for design generation.
