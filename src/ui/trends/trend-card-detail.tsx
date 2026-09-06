@@ -74,23 +74,52 @@ export function TrendCardDetail({ card }: { card: TrendCard }) {
               {formatConfidence(card.confidence)} confidence
             </p>
           </div>
-          <div className="mt-8 flex h-40 items-end gap-3" aria-label="Trend series">
-            {card.trendSeries.map((point) => (
-              <div
-                className="flex h-full flex-1 flex-col items-center justify-end gap-2"
-                key={point.t}
-              >
-                <div
-                  className="w-full rounded-t-lg bg-[#4F46E5]"
-                  style={{
-                    height: `${Math.max((point.v / chartPeak) * 100, 8)}%`,
-                  }}
-                />
-                <span className="text-[10px] text-slate-500">
-                  {formatDate(point.t)}
-                </span>
-              </div>
-            ))}
+          <div className="mt-8 flex gap-3">
+            <div
+              aria-label="Trend scale"
+              className="flex h-40 flex-col justify-between text-[10px] text-slate-500"
+            >
+              {[100, 75, 50, 25, 0].map((tick) => (
+                <span key={tick}>{tick}</span>
+              ))}
+            </div>
+            <div
+              className="flex h-40 flex-1 items-end gap-3"
+              aria-label="Trend series"
+            >
+              {card.trendSeries.map((point) => {
+                const pointDate = formatDate(point.t);
+
+                return (
+                  <div
+                    aria-label={`Search interest ${point.v} on ${pointDate}`}
+                    className="group relative flex h-full flex-1 flex-col items-center justify-end gap-2"
+                    key={point.t}
+                    tabIndex={0}
+                  >
+                    <div
+                      className="pointer-events-none absolute bottom-8 left-1/2 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2 py-1.5 text-xs text-white shadow-lg group-hover:block group-focus-within:block"
+                      data-testid="trend-tooltip"
+                      role="tooltip"
+                    >
+                      <span className="block font-semibold">Search interest</span>
+                      <span className="block">
+                        {point.v} · {pointDate}
+                      </span>
+                    </div>
+                    <div
+                      className="w-full rounded-t-lg bg-[#4F46E5]"
+                      style={{
+                        height: `${Math.max((point.v / chartPeak) * 100, 8)}%`,
+                      }}
+                    />
+                    <span className="text-[10px] text-slate-500">
+                      {pointDate}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </Panel>
 

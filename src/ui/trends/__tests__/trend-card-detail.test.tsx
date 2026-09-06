@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { RETRO_HALLOWEEN_CATS_CARD } from "../../../insights/__tests__/fixtures";
@@ -37,6 +37,39 @@ describe("TrendCardDetail", () => {
     for (const column of columns) {
       expect(column).toHaveClass("h-full");
     }
+  });
+
+  it("renders a y-axis scale and a per-point tooltip with metric alias, value, and date", () => {
+    render(<TrendCardDetail card={RETRO_HALLOWEEN_CATS_CARD} />);
+
+    const scale = screen.getByLabelText("Trend scale");
+    for (const tick of ["0", "25", "50", "75", "100"]) {
+      expect(within(scale).getByText(tick)).toBeInTheDocument();
+    }
+
+    const tooltips = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-testid="trend-tooltip"]'),
+    );
+    expect(tooltips).toHaveLength(RETRO_HALLOWEEN_CATS_CARD.trendSeries.length);
+
+    for (const tooltip of tooltips) {
+      expect(tooltip).toHaveTextContent("Search interest");
+    }
+
+    expect(
+      tooltips.some(
+        (tooltip) =>
+          tooltip.textContent?.includes("55") &&
+          tooltip.textContent.includes("Sep 5, 2026"),
+      ),
+    ).toBe(true);
+    expect(
+      tooltips.some(
+        (tooltip) =>
+          tooltip.textContent?.includes("20") &&
+          tooltip.textContent.includes("Aug 8, 2026"),
+      ),
+    ).toBe(true);
   });
 
   it("renders the seller insight dashboard and opportunity report", () => {
