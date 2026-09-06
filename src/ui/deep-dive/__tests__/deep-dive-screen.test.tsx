@@ -24,6 +24,7 @@ const CARD = {
 } satisfies TrendCard;
 
 afterEach(() => {
+  sessionStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -105,7 +106,7 @@ describe("DeepDiveScreen", () => {
     expect(screen.getByText(secondQuestion)).toBeInTheDocument();
   });
 
-  it("does not yet persist prior turns across remount documents FR11 navigation persistence gap", async () => {
+  it("restores prior turns after remount (FR11 navigation persistence)", async () => {
     const fetchSpy = vi.fn(async () =>
       Promise.resolve(
         new Response(
@@ -130,10 +131,17 @@ describe("DeepDiveScreen", () => {
 
     expect(screen.getByText(priorQuestion)).toBeInTheDocument();
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByText("Analysis complete")).toBeInTheDocument(),
+    );
 
     unmount();
     render(<DeepDiveScreen card={CARD} />);
 
-    expect(screen.queryByText(priorQuestion)).not.toBeInTheDocument();
+    expect(screen.getByText(priorQuestion)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText("Analysis complete")).toBeInTheDocument(),
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

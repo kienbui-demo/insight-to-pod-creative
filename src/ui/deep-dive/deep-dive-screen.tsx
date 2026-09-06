@@ -1,15 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 
-import type { TrendCard } from "../../../packages/contracts";
+import type { TrendCard, UiEvent } from "../../../packages/contracts";
 import { AppShell } from "../components/app-shell";
 import { Badge, Panel, primaryActionClass } from "../components/ui-primitives";
 import { formatConfidence } from "../formatters";
 import type { UiEventSource } from "../live-theater/event-source";
 import { LiveTheater } from "../live-theater/live-theater";
+import { createRecordingUiEventSource } from "../live-theater/recording-ui-event-source";
+import { createReplayUiEventSource } from "../live-theater/replay-ui-event-source";
 import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
+import {
+  createSessionStorageTurnStore,
+  type DeepDiveTurnStore,
+  type PersistedTurn,
+} from "./deep-dive-persistence";
 
 const suggestedQuestions = [
   "Why is this opportunity rising?",
@@ -17,15 +24,53 @@ const suggestedQuestions = [
   "How can I differentiate the design?",
 ];
 
-type DeepDiveTurn = {
-  runId: string;
-  question: string;
+type DeepDiveTurn = PersistedTurn & {
   eventSource: UiEventSource;
 };
 
-export function DeepDiveScreen({ card }: { card: TrendCard }) {
+function rehydrateTurn(turn: PersistedTurn): DeepDiveTurn {
+  return {
+    ...turn,
+    eventSource: createReplayUiEventSource(turn.events),
+  };
+}
+
+function persistedTurns(turns: DeepDiveTurn[]): PersistedTurn[] {
+  return turns.map(({ runId, question, events }) => ({
+    runId,
+    question,
+    events,
+  }));
+}
+
+export function DeepDiveScreen({
+  card,
+  turnStore = createSessionStorageTurnStore(),
+}: {
+  card: TrendCard;
+  turnStore?: DeepDiveTurnStore;
+}) {
   const [question, setQuestion] = useState("");
-  const [turns, setTurns] = useState<DeepDiveTurn[]>([]);
+  const [turns, setTurns] = useState<DeepDiveTurn[]>(() =>
+    turnStore.load(card.id).map(rehydrateTurn),
+  );
+  const turnsRef = useRef(turns);
+
+  function updateTurns(nextTurns: DeepDiveTurn[]): void {
+    turnsRef.current = nextTurns;
+    turnStore.save(card.id, persistedTurns(nextTurns));
+    setTurns(nextTurns);
+  }
+
+  function recordEvent(runId: string, event: UiEvent): void {
+    updateTurns(
+      turnsRef.current.map((turn) =>
+        turn.runId === runId
+          ? { ...turn, events: [...turn.events, event] }
+          : turn,
+      ),
+    );
+  }
 
   function submitQuestion(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -35,7 +80,7 @@ export function DeepDiveScreen({ card }: { card: TrendCard }) {
     }
 
     const runId = crypto.randomUUID();
-    const eventSource = createSseUiEventSource({
+    const liveEventSource = createSseUiEventSource({
       url: "/api/live",
       runId,
       request: {
@@ -52,10 +97,14 @@ export function DeepDiveScreen({ card }: { card: TrendCard }) {
       fetch: globalThis.fetch.bind(globalThis),
       maxReconnects: 1,
     });
+    const eventSource = createRecordingUiEventSource({
+      source: liveEventSource,
+      onEvent: (streamedEvent) => recordEvent(runId, streamedEvent),
+    });
 
-    setTurns((currentTurns) => [
-      ...currentTurns,
-      { runId, question: trimmedQuestion, eventSource },
+    updateTurns([
+      ...turnsRef.current,
+      { runId, question: trimmedQuestion, events: [], eventSource },
     ]);
   }
 
