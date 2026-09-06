@@ -20,6 +20,26 @@
 5. **Architect verifies, does not trust.** Codex's summary is a claim; the architect re-reads the actual diff and re-runs the checks before committing.
 6. **Codex invocation** is single-line prompts over `wsl.exe bash -lc "cd ~/ptv-agent && codex exec -c sandbox_mode=workspace-write -c approval_policy=never '<one-line prompt>' </dev/null 2>&1"` (no literal newlines — they break the cmd→WSL→bash layering). If Codex stops for plan approval, the architect reviews the plan and relaunches with "PLAN ALREADY APPROVED … execute now, do not ask again."
 
+### File-transfer protocol (Mira ↔ WSL) — standard channel + safety gate
+
+> Recorded per constitution rule 7. This is the authoritative way the architect pushes any file (spec/tasks/brief) from the Mira sandbox into the repo on the user's WSL machine. Adopted 2026-09-06.
+
+**Why a protocol at all.** The Mira `Bash` tool runs in a REMOTE sandbox with no shared mount to the user's machine; the only channel is the local MCP tool, which runs in Windows `cmd.exe` (minimal PATH — invoke WSL via full path `C:\Windows\System32\wsl.exe bash -lc "…"`). `cmd.exe` caps a command line at ~8191 chars, so inlining a file's content, or base64-chunking it, is fragile (silent mid-string truncation, no integrity check).
+
+**Standard channel — upload + curl + MD5 (use this, not base64 chunking):**
+
+1. In the sandbox, generate the file, then call the `upload_file` tool → returns a signed TOS URL + the file's MD5.
+2. In WSL, fetch by the short URL only (nothing large crosses the cmd→WSL boundary): `curl -fsSL '<URL>' -o <dest>.new`. Pass the signed URL VERBATIM as `upload_file` returned it (the signature is masked in the architect's context; retyping it yields HTTP 403).
+3. Integrity-check: `md5sum <dest>.new` and compare byte-for-byte to the upload's MD5. Proceed ONLY on an exact match.
+
+**Mandatory diff + verify BEFORE any repo update (hard gate — never skip):**
+
+4. Never overwrite the tracked file directly from `.new`. First diff it against the live file: `diff -u <dest> <dest>.new` (or `git --no-pager diff --no-index <dest> <dest>.new`). Read the whole diff; confirm it changes exactly what was intended and touches no frozen contract.
+5. Only after the diff is reviewed and the MD5 matched, apply it (`cat <dest>.new > <dest>`), then re-run the relevant checks (tsc/eslint/vitest for code; a re-read for docs).
+6. Commit with explicit paths only (never `git add -A`); do NOT stage the `.new` scratch file or any diagnostics. Clean up `<dest>.new` after. Use a single `-m` commit message (a two-`-m` invocation over the cmd→WSL boundary trips a false-positive path guard on `C:\Windows`).
+
+**Security caveat.** Signed TOS URLs are fetchable by anyone holding them until expiry, so this channel is for non-sensitive artifacts (spec/tasks/briefs) ONLY — never secrets, keys, `.env*`, or credentials.
+
 ## Phase A — Foundation (SERIAL, one agent, must finish first)
 
 These create the shared surface everything else depends on. Do NOT parallelize.
