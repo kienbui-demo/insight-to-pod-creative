@@ -2,6 +2,24 @@
 
 > Rule: 1 feature = 1 worktree = 1 agent session = 1 PR. Sub-tasks run sequentially inside the feature's worktree. Two features that touch the same file → serialize. Contracts (contracts.md) must be FROZEN before any parallel feature starts.
 
+## Working model — Architect (Claude) ↔ Codex CLI (source-of-truth roles & rules)
+
+> Recorded here per constitution rule 7 (no design/process decision lives only in chat). This is the durable, authoritative description of how the two agents collaborate on this repo. Updated 2026-09-06.
+
+**Roles**
+
+- **Architect (Claude / Mira)** — owns the repo's *intent*: reads the repo, controls `specs/spec.md` and `specs/tasks.md` as source-of-truth, decides scope and execution order, writes the requirements/prompts (including test requirements) for Codex, reviews Codex's plan + RED/GREEN + diffs, verifies independently (re-reads changed files, re-runs tsc/eslint/vitest), and is the ONLY party that runs `git add`/`git commit` — from the outer WSL shell, with explicit paths. The architect does NOT write production code directly.
+- **Codex CLI** — the executor that edits code directly on the user's machine (WSL) inside `~/ptv-agent`. Codex writes production + test code following TDD (RED first) or Verify-by-running, per the architect's brief. Codex CANNOT commit: its `.git` is mounted read-only in its sandbox, so all staging/commits are done by the architect from the outer shell.
+
+**Rules of engagement**
+
+1. **Spec/tasks are source-of-truth.** Every landed change is reflected here and in `specs/spec.md` before/at commit time. No decision survives only in chat.
+2. **TDD is mandatory for behavior** (constitution rule 8): RED test first, then implement to GREEN. Verify lane allowed for pure UI/wiring characterization.
+3. **Contracts stay frozen** unless an explicit, scoped, user-approved unlock is recorded in this file (see the Phase D / Phase E unlock blocks). Re-freeze after merge.
+4. **Explicit-path commits only.** Never `git add -A`. Never stage diagnostics/scratch (`.codex-b64-*.txt`, `.codex-brief-*.txt`, `backfill_embeddings.mjs`, `diag-*.mts`, `verify_similar.mjs`). Never amend prior commits. No `npm audit fix`, no package version bumps.
+5. **Architect verifies, does not trust.** Codex's summary is a claim; the architect re-reads the actual diff and re-runs the checks before committing.
+6. **Codex invocation** is single-line prompts over `wsl.exe bash -lc "cd ~/ptv-agent && codex exec -c sandbox_mode=workspace-write -c approval_policy=never '<one-line prompt>' </dev/null 2>&1"` (no literal newlines — they break the cmd→WSL→bash layering). If Codex stops for plan approval, the architect reviews the plan and relaunches with "PLAN ALREADY APPROVED … execute now, do not ask again."
+
 ## Phase A — Foundation (SERIAL, one agent, must finish first)
 
 These create the shared surface everything else depends on. Do NOT parallelize.
@@ -156,3 +174,51 @@ Frozen files (do NOT modify): `src/bff/types.ts`, `src/integration/live-route.ts
 - **P10 (FR9):** 🟡 In progress — seller can author a card from a seed for topics absent from the warehouse; the synthesized card is persisted to `trend_cards` and reused. Depends on P9 (design gen from the new card is warehouse-first).
 
 > Deferred to Phase 2 (out of MVP scope, spec.md §7): P3 credit metering + seller auth; real Printerval adapter (P2 hardening); Instagram/YouTube sources; full eval pipeline; multi-region/multi-language.
+
+## Phase E - Post-UI-test bug fixes (user-approved 2026-09-06)
+
+> Context: after a manual UI test round, the seller (product owner) filed 4 bugs; Bug 2 (Postgres ECONNREFUSED on home page) is explicitly OUT of scope this round (SKIP). The remaining fixes map to FR10-FR13 (see spec.md). Execution is coordinated with Codex CLI over WSL under the same discipline: TDD (RED first), explicit-path commits, serialized hotspots, contracts stay frozen.
+
+### Frozen-file unlock (Phase E scope only)
+
+> AUTHORIZED UNLOCK (user-approved 2026-09-06, mirrors the P9/P10 pattern): to land E2 (multi-turn deep-dive) and E1 (deep-dive warehouse-first), the following otherwise-frozen files are temporarily unlocked ONLY for the minimal, explicitly-scoped edits below. `packages/contracts/*`, `src/bff/types.ts`, and all `.env*` stay FROZEN (no wire-shape / contract change). Re-freeze after the Phase E merge.
+>
+> - `src/bff/router.ts` - E1: extend the warehouse-lookup fast-path so `kind === "deep-dive"` on a warehouse hit is answered from stored card data (currently only `kind === "trend-card"` is looked up). Miss -> existing live path (author-a-card, FR9). No signature/return-shape change.
+> - `src/ui/live-theater/*` - E2: allow the reducer / LiveTheater to be re-keyed per question turn so a second question is not blocked by the `done`/`failed` short-circuit. Additive turn handling only; no `UiEvent` contract change.
+> - `src/ui/deep-dive/deep-dive-screen.tsx` - E2: replace the single `submittedQuestion` + single `<LiveTheater>` with a per-turn conversation (list of {question, runId, eventSource}); each new Ask appends a turn with its own runId.
+> - `src/integration/live-dependencies.ts` - E3: swap `InMemoryRunSessionRepository` for a new `PostgresRunSessionRepository` (durable runId->maSessionId), gated on `DATABASE_URL` with in-memory fallback. (Stays unlocked from P9/P10.)
+>
+> NOT unlocked / untouched: `src/integration/live-route.ts`, `src/bff/types.ts`, `packages/contracts/*`, `.env*`, `env-config.ts`, `submitCustomToolResult` wire-shape.
+>
+> STATUS 2026-09-06: Phase E E1-E5 merged. Re-freeze all Phase E unlocked files EXCEPT where E6 (below) needs them; `live-dependencies.ts` stays unlocked while E6 is pending.
+
+| ID | Feature | Owner dir(s) / files | Status | Lane | Notes |
+|-|-|-|-|-|-|
+| **E4** | Seller insight dashboard + text opportunity report (FR12) | `src/insights/derive-seller-insights.ts` (new, pure) + `src/insights/__tests__/*`; `src/ui/trends/trend-card-detail.tsx` | ✅ Done (`7faeb55`) | Full TDD | New pure `deriveSellerInsights(card)` computes demand/momentum, money/competition, confidence metrics from the card (no contract/DB change); detail screen renders an Insight Dashboard block + a 6-section Opportunity Report block. RED tests first (golden card fixtures: retro-halloween-cats et al.). DO FIRST - lowest coupling, no frozen files. |
+| **E2** | Multi-turn deep-dive chat (FR11, part 1) | `src/ui/deep-dive/deep-dive-screen.tsx`, `src/ui/live-theater/*` | ✅ Done (`7e8ef0e`) | Verify + RED | Per-turn conversation state; re-key LiveTheater per turn; second Ask appends a new turn with its own runId instead of no-op. RED test on the reducer/turn model first. Uses Phase E unlock. |
+| **E1** | Deep-dive warehouse-first, no re-crawl (FR10) | `src/bff/router.ts` + `src/bff/__tests__/*` | ✅ Done (`21baac9`) | Full TDD | Extend cache fast-path to `deep-dive` on a warehouse hit (answer from stored card); genuine miss -> live author-a-card path (FR9). RED mapping test: existing card deep-dive => `FakeCrawlPort.calls` empty. Uses Phase E unlock. |
+| **E3** | Durable deep-dive session persistence (FR11, part 2) | `src/integration/postgres-run-session-repository.ts` (new) + tests; `src/integration/live-dependencies.ts` | ✅ Done (`b341876`) | Full TDD | Implement `PostgresRunSessionRepository` against the EXISTING `ma_run_sessions` table (migration `20260828054035_ma_run_sessions.sql`: run_id PK, ma_session_id UNIQUE, timestamps). Wire in composition root, gated on `DATABASE_URL`, in-memory fallback otherwise. RED repository round-trip test first. |
+| **E5** | Real reference images (FR13) | `packages/contracts/seed/dev-trend-cards.sql`, `next.config.ts` | ✅ Done (`4a7561c`) | Verify | Replaced `tos.example` placeholder image URLs in dev seed with real loadable Wikimedia Commons `Special:FilePath` URLs; added `commons.wikimedia.org` + `upload.wikimedia.org` to the `next.config` image host allowlist. Note: real adapters (`pinterest-adapter`/`tiktok-adapter`) already extract `referenceImageUrls` from live data - this fix is about seed fixtures + host allowlist so warehouse-served cards do not show broken images. |
+
+### Phase E test-hardening (architect-required, after E1-E5)
+
+> Commit `3158ec9` — "test(phase-e): lock FR12 detail UI, FR11 durable-session wiring, FR13 image hosts; characterize FR11 nav-persistence gap". Architect wrote the test requirements, Codex implemented under TDD/Verify, architect re-verified (re-read the two integration tests, re-ran tsc/eslint clean, full suite 90 files / 479 tests green = 473 baseline + 6 new) then committed with explicit paths.
+
+| Test | Guards | File | Status |
+|-|-|-|-|
+| **D1** | FR12 detail-UI render (dashboard + 6-section report + "Act now" badge) | `src/ui/trends/__tests__/trend-card-detail.test.tsx` | ✅ Green |
+| **D2** | FR11-p2 wiring — `PostgresRunSessionRepository` when `DATABASE_URL` present, `InMemoryRunSessionRepository` when absent (constructor-options capture) | `src/integration/__tests__/live-dependencies.run-session-wiring.test.ts` | ✅ Green (2 tests) |
+| **D3** | FR13 regression — seed SQL has no `tos.example` + has `commons.wikimedia.org`; `next.config.ts` allows `commons.wikimedia.org` + `upload.wikimedia.org` | `src/integration/__tests__/reference-image-hosts.test.ts` | ✅ Green (2 tests) |
+| **D4** | FR11-p1 nav-persistence — CHARACTERIZATION: current `deep-dive-screen` keeps `turns` in local `useState`, so a remount loses prior turns (documents the E6 gap, not yet a failing RED) | `src/ui/deep-dive/__tests__/deep-dive-screen.test.tsx` (extended) | ✅ Green (characterization) |
+
+### E6 — FR11 deep-dive nav-persistence (SPEC GAP, pending user approval)
+
+> Architect finding: FR11 requires the deep-dive conversation to persist **across navigation** (leave the card and return → prior turns re-shown) AND **across process restarts**. E3 (`b341876`) satisfies the *restart* half (durable runId→MA-session in Postgres). The *navigation* half is NOT implemented: `deep-dive-screen.tsx` holds `turns` in local React `useState`, so unmount (navigating away) drops the conversation. D4 characterizes this gap as GREEN documentation. E6 would flip D4 to a RED failing test, then implement to GREEN.
+
+| ID | Feature | Owner dir(s) / files | Status | Lane | Notes |
+|-|-|-|-|-|-|
+| **E6** | Deep-dive turns persist across navigation (FR11 nav half) | `src/ui/deep-dive/deep-dive-screen.tsx` (+ a durable-turns read path; likely reload prior turns from `ma_run_sessions` / MA-session history on mount) + tests | ⏸️ Pending — **needs user approval to start** | Full TDD | On mount, reload prior deep-dive turns for the card from the durable store (Postgres `ma_run_sessions` + MA session history) instead of starting empty. RED first: convert D4 characterization into a failing "turns survive remount" assertion, then implement to GREEN. Reuses the Phase E `live-dependencies.ts` unlock; may need a scoped read-port addition (record in an unlock note before touching frozen files). |
+
+> SKIPPED this round (user decision 2026-09-06): Bug 2 - Postgres `ECONNREFUSED 127.0.0.1:5432` crashing the home page (`app/page.tsx` `listRecent(24)` with no try/catch). Not fixed now; revisit later.
+
+> Execution order (completed): **E4 ✅ -> E2 ✅ -> E1 ✅ -> E3 ✅ -> E5 ✅**, then test-hardening `3158ec9` ✅. Next candidate (pending approval): **E6** (FR11 navigation persistence). Rationale for original order: E4 had zero frozen-file coupling (fastest win + immediate seller value); E2/E1 shared the deep-dive lane; E3 was the durability backstop for E2; E5 was a small seed/config fix.
