@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useState } from "react";
 
 import type { TrendCard } from "../../../packages/contracts";
 import { AppShell } from "../components/app-shell";
 import { Badge, Panel, primaryActionClass } from "../components/ui-primitives";
 import { formatConfidence } from "../formatters";
+import type { UiEventSource } from "../live-theater/event-source";
 import { LiveTheater } from "../live-theater/live-theater";
 import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
 
@@ -16,16 +17,25 @@ const suggestedQuestions = [
   "How can I differentiate the design?",
 ];
 
+type DeepDiveTurn = {
+  runId: string;
+  question: string;
+  eventSource: UiEventSource;
+};
+
 export function DeepDiveScreen({ card }: { card: TrendCard }) {
-  const [runId] = useState(() => crypto.randomUUID());
   const [question, setQuestion] = useState("");
-  const [submittedQuestion, setSubmittedQuestion] = useState<string>();
-  const eventSource = useMemo(() => {
-    if (!submittedQuestion) {
-      return undefined;
+  const [turns, setTurns] = useState<DeepDiveTurn[]>([]);
+
+  function submitQuestion(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    const trimmedQuestion = question.trim();
+    if (trimmedQuestion.length === 0) {
+      return;
     }
 
-    return createSseUiEventSource({
+    const runId = crypto.randomUUID();
+    const eventSource = createSseUiEventSource({
       url: "/api/live",
       runId,
       request: {
@@ -37,21 +47,16 @@ export function DeepDiveScreen({ card }: { card: TrendCard }) {
           productType: card.productType,
           mode: "live",
         },
-        question: submittedQuestion,
+        question: trimmedQuestion,
       },
       fetch: globalThis.fetch.bind(globalThis),
       maxReconnects: 1,
     });
-  }, [card, runId, submittedQuestion]);
 
-  function submitQuestion(event: FormEvent<HTMLFormElement>): void {
-    event.preventDefault();
-    const trimmedQuestion = question.trim();
-    if (trimmedQuestion.length === 0) {
-      return;
-    }
-
-    setSubmittedQuestion(trimmedQuestion);
+    setTurns((currentTurns) => [
+      ...currentTurns,
+      { runId, question: trimmedQuestion, eventSource },
+    ]);
   }
 
   return (
@@ -94,9 +99,19 @@ export function DeepDiveScreen({ card }: { card: TrendCard }) {
             ))}
           </div>
 
-          <div className="mt-6">
-            {eventSource ? (
-              <LiveTheater eventSource={eventSource} />
+          <div className="mt-6 space-y-6">
+            {turns.length > 0 ? (
+              turns.map((turn) => (
+                <article className="space-y-3" key={turn.runId}>
+                  <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-900">
+                    {turn.question}
+                  </p>
+                  <LiveTheater
+                    eventSource={turn.eventSource}
+                    key={turn.runId}
+                  />
+                </article>
+              ))
             ) : (
               <p className="text-sm text-slate-600">
                 Ask a question to start a live deep-dive.

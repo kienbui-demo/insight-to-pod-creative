@@ -66,4 +66,42 @@ describe("DeepDiveScreen", () => {
     expect(screen.getByText("Waiting to start")).toBeInTheDocument();
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
   });
+
+  it("starts a distinct live turn for each submitted question", async () => {
+    const fetchSpy = vi.fn(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DeepDiveScreen card={CARD} />);
+
+    const askButton = screen.getByRole("button", { name: "Ask" });
+    const questionInput = screen.getByPlaceholderText(
+      "Ask about this opportunity…",
+    );
+    const firstQuestion = "What signals support this trend?";
+    const secondQuestion = "How should I position the follow-up design?";
+
+    fireEvent.change(questionInput, { target: { value: firstQuestion } });
+    fireEvent.click(askButton);
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByText("Analysis complete")).toBeInTheDocument(),
+    );
+
+    fireEvent.change(questionInput, { target: { value: secondQuestion } });
+    fireEvent.click(askButton);
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    expect(screen.getByText(firstQuestion)).toBeInTheDocument();
+    expect(screen.getByText(secondQuestion)).toBeInTheDocument();
+  });
 });
