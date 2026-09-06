@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import type { TrendCard, UiEvent } from "../../../packages/contracts";
 import { AppShell } from "../components/app-shell";
@@ -51,10 +51,17 @@ export function DeepDiveScreen({
   turnStore?: DeepDiveTurnStore;
 }) {
   const [question, setQuestion] = useState("");
-  const [turns, setTurns] = useState<DeepDiveTurn[]>(() =>
-    turnStore.load(card.id).map(rehydrateTurn),
-  );
+  const [turns, setTurns] = useState<DeepDiveTurn[]>([]);
   const turnsRef = useRef(turns);
+
+  useEffect(() => {
+    const restored = turnStore.load(card.id).map(rehydrateTurn);
+    if (restored.length > 0) {
+      turnsRef.current = restored;
+      setTurns(restored);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only on mount or card change
+  }, [card.id]);
 
   function updateTurns(nextTurns: DeepDiveTurn[]): void {
     turnsRef.current = nextTurns;

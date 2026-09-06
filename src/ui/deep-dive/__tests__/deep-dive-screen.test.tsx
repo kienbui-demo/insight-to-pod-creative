@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TrendCard } from "../../../../packages/contracts";
@@ -29,6 +30,23 @@ afterEach(() => {
 });
 
 describe("DeepDiveScreen", () => {
+  it("does not read persisted turns during initial render (SSR hydration-safe)", () => {
+    const priorQuestion = "Persisted before reload?";
+    const persisted = [
+      { runId: "prior-run", question: priorQuestion, events: [] },
+    ];
+    const store = {
+      load: () => persisted,
+      save: () => {},
+    };
+
+    const serverHtml = renderToString(
+      <DeepDiveScreen card={CARD} turnStore={store} />,
+    );
+
+    expect(serverHtml).not.toContain(priorQuestion);
+  });
+
   it("lets the seller choose and submit a deep-dive question", async () => {
     const fetchSpy = vi.fn(async () =>
       Promise.resolve(
