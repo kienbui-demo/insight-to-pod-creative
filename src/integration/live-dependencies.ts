@@ -15,6 +15,7 @@ import { createModelArkEmbeddingProvider } from "./modelark-embedding-port";
 import * as seedreamModule from "./modelark-seedream-image-port";
 import { createPersistingLiveSessionPort } from "./persisting-live-session-port";
 import { createPostgresQueryExecutor } from "./postgres-query-executor";
+import { PostgresRunSessionRepository } from "./postgres-run-session-repository";
 import { createRepositoryTrendCardLookup } from "./repository-trend-card-lookup";
 import { DEMO_SELLER_ID } from "./demo-seller";
 
@@ -22,7 +23,14 @@ export function buildLiveDependencies(
   env: NodeJS.ProcessEnv = process.env,
 ): MonetizedLiveDependencies {
   const config = loadModelArkConfig(env);
-  const runSessions = new InMemoryRunSessionRepository();
+  const databaseUrl = env.DATABASE_URL;
+  const pool = databaseUrl
+    ? new Pool({ connectionString: databaseUrl })
+    : undefined;
+  const executor = pool ? createPostgresQueryExecutor(pool) : undefined;
+  const runSessions = executor
+    ? new PostgresRunSessionRepository(executor)
+    : new InMemoryRunSessionRepository();
   const client = new ModelArkManagedAgentClient({
     ...config,
     runSessions,
@@ -32,11 +40,6 @@ export function buildLiveDependencies(
     apiKey: config.apiKey,
     model: config.seedreamModel,
   });
-  const databaseUrl = env.DATABASE_URL;
-  const pool = databaseUrl
-    ? new Pool({ connectionString: databaseUrl })
-    : undefined;
-  const executor = pool ? createPostgresQueryExecutor(pool) : undefined;
   const lookup = executor
     ? createRepositoryTrendCardLookup(
         new PostgresTrendCardRepository(
