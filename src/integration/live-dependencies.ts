@@ -62,6 +62,7 @@ export function buildLiveDependencies(
       crawl,
       seedream,
       maxImagesPerAction: 1,
+      lookup,
     });
   const liveSessions = executor
     ? createPersistingLiveSessionPort({
