@@ -1,13 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
-
 import type { TrendCard } from "../../../packages/contracts";
 import { AppShell } from "../components/app-shell";
 import { Badge } from "../components/ui-primitives";
-import { LiveTheater } from "../live-theater/live-theater";
-import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
 import { TrendCardGrid } from "../trends/trend-card-grid";
+import { SeedAuthoringPanel } from "./seed-authoring-panel";
 
 const suggestions = ["Halloween", "Christmas", "Winter gifting", "US", "DE"];
 
@@ -18,31 +15,6 @@ export function DiscoverScreen({
   cards: readonly TrendCard[];
   source: "live" | "empty";
 }) {
-  const eventSource = useMemo(() => {
-    const seedCard = cards[0] ?? {
-      market: "US",
-      seed: "halloween",
-      productType: "t-shirt",
-    };
-
-    return createSseUiEventSource({
-      url: "/api/live",
-      runId: crypto.randomUUID(),
-      request: {
-        kind: "trend-card",
-        crawl: {
-          source: "google_trends",
-          market: seedCard.market,
-          seed: seedCard.seed,
-          productType: seedCard.productType,
-          mode: "live",
-        },
-      },
-      fetch: globalThis.fetch.bind(globalThis),
-      maxReconnects: 1,
-    });
-  }, [cards]);
-
   return (
     <AppShell>
       <section className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-start">
@@ -65,7 +37,7 @@ export function DiscoverScreen({
             ))}
           </div>
         </div>
-        <LiveTheater eventSource={eventSource} />
+        <SeedAuthoringPanel />
       </section>
 
       <section className="mt-14">

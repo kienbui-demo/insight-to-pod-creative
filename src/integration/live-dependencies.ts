@@ -14,6 +14,7 @@ import type { MonetizedLiveDependencies } from "./live-route";
 import { createModelArkEmbeddingProvider } from "./modelark-embedding-port";
 import * as seedreamModule from "./modelark-seedream-image-port";
 import { createPersistingLiveSessionPort } from "./persisting-live-session-port";
+import { createPersistingTrendCardSessionPort } from "./persisting-trend-card-live-session-port";
 import { createPostgresQueryExecutor } from "./postgres-query-executor";
 import { PostgresRunSessionRepository } from "./postgres-run-session-repository";
 import { createRepositoryTrendCardLookup } from "./repository-trend-card-lookup";
@@ -40,17 +41,16 @@ export function buildLiveDependencies(
     apiKey: config.apiKey,
     model: config.seedreamModel,
   });
-  const lookup = executor
-    ? createRepositoryTrendCardLookup(
-        new PostgresTrendCardRepository(
-          executor,
-          createModelArkEmbeddingProvider({
-            baseUrl: config.baseUrl,
-            apiKey: config.apiKey,
-            model: config.embeddingModel,
-          }),
-        ),
-      )
+  const embeddings = createModelArkEmbeddingProvider({
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    model: config.embeddingModel,
+  });
+  const trendCardRepository = executor
+    ? new PostgresTrendCardRepository(executor, embeddings)
+    : undefined;
+  const lookup = trendCardRepository
+    ? createRepositoryTrendCardLookup(trendCardRepository)
     : alwaysMissTrendCardLookup;
   const crawl =
     typeof env.APIFY_TOKEN === "string" && env.APIFY_TOKEN.length > 0
@@ -67,13 +67,20 @@ export function buildLiveDependencies(
       maxImagesPerAction: 1,
       lookup,
     });
-  const liveSessions = executor
+  const withProjectPersistence = executor
     ? createPersistingLiveSessionPort({
         inner: innerLiveSessions,
         projects: new PostgresSellerProjectRepository(executor),
         sellerId: DEMO_SELLER_ID,
       })
     : innerLiveSessions;
+  const liveSessions = trendCardRepository
+    ? createPersistingTrendCardSessionPort({
+        inner: withProjectPersistence,
+        repository: trendCardRepository,
+        embeddings,
+      })
+    : withProjectPersistence;
 
   return {
     lookup,

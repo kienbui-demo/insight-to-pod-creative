@@ -1,9 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CrawlRequest } from "../../../packages/contracts";
+import { COMPLETE_TREND_CARD } from "../../agent/__fixtures__/trend-card";
 import * as modelarkLiveSessionModule from "../../agent/modelark-live-session";
+import type {
+  BffRequest,
+  LiveRun,
+  LiveSessionPort,
+  RawMaEvent,
+} from "../../bff/types";
+import { PostgresTrendCardRepository } from "../../storage/postgres-trend-card-repository";
 import { alwaysMissTrendCardLookup } from "../always-miss-trend-card-lookup";
 import { buildLiveDependencies } from "../live-dependencies";
+import * as embeddingModule from "../modelark-embedding-port";
 import * as seedreamModule from "../modelark-seedream-image-port";
 
 const VALID_ENV: NodeJS.ProcessEnv = {
@@ -22,6 +31,14 @@ const CRAWL = {
   productType: "t-shirt",
   mode: "live",
 } satisfies CrawlRequest;
+
+async function collect(events: AsyncIterable<RawMaEvent>) {
+  const collected: RawMaEvent[] = [];
+  for await (const event of events) {
+    collected.push(event);
+  }
+  return collected;
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -137,5 +154,58 @@ describe("buildLiveDependencies", () => {
     const rawWithDatabase = liveSessionFactory.mock.results[1]?.value;
 
     expect(withDatabase.liveSessions).not.toBe(rawWithDatabase);
+  });
+
+  it("persists final cards only on the DATABASE_URL-backed live-session path", async () => {
+    const events = [
+      { id: "card-ready", type: "final_card", card: COMPLETE_TREND_CARD },
+    ] satisfies readonly RawMaEvent[];
+    const createRun = (): LiveRun => ({
+      history: vi.fn(async () => []),
+      async *openEvents(): AsyncIterable<RawMaEvent> {
+        for (const event of events) {
+          yield event;
+        }
+      },
+      send: vi.fn(async () => undefined),
+      cancel: vi.fn(),
+    });
+    const rawLiveSessions: LiveSessionPort = {
+      create: vi.fn(async () => createRun()),
+    };
+    vi.spyOn(
+      modelarkLiveSessionModule,
+      "createModelArkLiveSessionPort",
+    ).mockReturnValue(rawLiveSessions);
+    const embed = vi.fn(async () => [0.25, 0.75]);
+    vi.spyOn(embeddingModule, "createModelArkEmbeddingProvider").mockReturnValue({
+      embed,
+    });
+    const save = vi
+      .spyOn(PostgresTrendCardRepository.prototype, "save")
+      .mockResolvedValue(undefined);
+    const request = { kind: "trend-card", crawl: CRAWL } satisfies BffRequest;
+
+    const withDatabase = buildLiveDependencies({
+      ...VALID_ENV,
+      DATABASE_URL: "postgresql://user:pass@localhost:5432/db",
+    });
+    const persistedRun = await withDatabase.liveSessions.create("run-db");
+    await persistedRun.send(request);
+    await expect(collect(persistedRun.openEvents())).resolves.toEqual(events);
+
+    expect(embed).toHaveBeenCalledWith(
+      COMPLETE_TREND_CARD.seed.trim().toLowerCase(),
+    );
+    expect(save).toHaveBeenCalledWith(COMPLETE_TREND_CARD, [0.25, 0.75]);
+
+    const withoutDatabase = buildLiveDependencies(VALID_ENV);
+    const inMemoryRun = await withoutDatabase.liveSessions.create(
+      "run-in-memory",
+    );
+    await inMemoryRun.send(request);
+    await expect(collect(inMemoryRun.openEvents())).resolves.toEqual(events);
+
+    expect(save).toHaveBeenCalledTimes(1);
   });
 });
