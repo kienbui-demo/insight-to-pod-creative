@@ -190,38 +190,88 @@ describe("P9 generate-design warehouse-first crawl fulfillment", () => {
     expect(missing).toEqual({ ok: true, records: [] });
   });
 
-  it.each([
-    {
-      label: "trend-card",
+  it("keeps trend-card crawl fulfillment live even when a warehouse lookup is provided", async () => {
+    const lookup = new FakeTrendCardLookup({
+      kind: "hit",
+      card: COMPLETE_TREND_CARD,
+    });
+
+    const { client, crawl } = await fulfillCrawlTool({
       request: { kind: "trend-card", crawl: CRAWL },
-    },
-    {
-      label: "deep-dive",
+      source: "amazon",
+      lookup,
+    });
+
+    expect(lookup.calls).toEqual([]);
+    expect(crawl.calls).toHaveLength(1);
+    expect(client.session.submittedToolResults).toEqual([
+      expect.objectContaining({ result: LIVE_RESULT }),
+    ]);
+  });
+});
+
+describe("E1 deep-dive warehouse-first crawl fulfillment", () => {
+  it("serves a deep-dive lookup hit to the MA crawl tool without calling the live crawl port", async () => {
+    const lookup = new FakeTrendCardLookup({
+      kind: "hit",
+      card: COMPLETE_TREND_CARD,
+    });
+    const warehouseModes: string[] = [];
+    const metricSink = {
+      record(observation) {
+        if (
+          observation.name === "ptv_crawl_source_run_total" &&
+          observation.labels.stage === "execute"
+        ) {
+          warehouseModes.push(observation.labels.mode);
+        }
+      },
+    } satisfies MetricSink;
+
+    const { client, crawl } = await fulfillCrawlTool({
       request: {
         kind: "deep-dive",
         crawl: CRAWL,
         question: "Which audience should I target?",
       },
-    },
-  ] as const satisfies readonly { label: string; request: BffRequest }[])(
-    "keeps $label crawl fulfillment live even when a warehouse lookup is provided",
-    async ({ request }) => {
-      const lookup = new FakeTrendCardLookup({
-        kind: "hit",
-        card: COMPLETE_TREND_CARD,
-      });
+      source: "amazon",
+      lookup,
+      metricSink,
+    });
+    const expected = warehouseCrawlRecords(COMPLETE_TREND_CARD, "amazon");
 
-      const { client, crawl } = await fulfillCrawlTool({
-        request,
-        source: "amazon",
-        lookup,
-      });
+    expect(lookup.calls).toEqual([CRAWL]);
+    expect(crawl.calls).toEqual([]);
+    expect(client.session.submittedToolResults).toEqual([
+      {
+        id: "crawl-deep-dive:result",
+        type: "user.custom_tool_result",
+        custom_tool_use_id: "crawl-deep-dive",
+        name: "crawl",
+        input: { source: "amazon" },
+        result: expected,
+      } satisfies ManagedAgentEvent,
+    ]);
+    expect(warehouseModes).toEqual(["warehouse"]);
+  });
 
-      expect(lookup.calls).toEqual([]);
-      expect(crawl.calls).toHaveLength(1);
-      expect(client.session.submittedToolResults).toEqual([
-        expect.objectContaining({ result: LIVE_RESULT }),
-      ]);
-    },
-  );
+  it("falls back to the live crawl port when deep-dive lookup misses", async () => {
+    const lookup = new FakeTrendCardLookup({ kind: "miss" });
+
+    const { client, crawl } = await fulfillCrawlTool({
+      request: {
+        kind: "deep-dive",
+        crawl: CRAWL,
+        question: "Which audience should I target?",
+      },
+      source: "amazon",
+      lookup,
+    });
+
+    expect(lookup.calls).toEqual([CRAWL]);
+    expect(crawl.calls).toHaveLength(1);
+    expect(client.session.submittedToolResults).toEqual([
+      expect.objectContaining({ result: LIVE_RESULT }),
+    ]);
+  });
 });

@@ -143,7 +143,10 @@ class ModelArkLiveRun implements LiveRun {
 
   async send(request: BffRequest): Promise<void> {
     this.servedCard = undefined;
-    if (request.kind === "generate-design" && this.lookup !== undefined) {
+    if (
+      (request.kind === "generate-design" || request.kind === "deep-dive") &&
+      this.lookup !== undefined
+    ) {
       try {
         const result = await this.lookup.lookup(request.crawl);
         if (result.kind === "hit") {
