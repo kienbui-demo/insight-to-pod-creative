@@ -76,7 +76,10 @@ export function TrendCardDetail({ card }: { card: TrendCard }) {
           </div>
           <div className="mt-8 flex h-40 items-end gap-3" aria-label="Trend series">
             {card.trendSeries.map((point) => (
-              <div className="flex flex-1 flex-col items-center gap-2" key={point.t}>
+              <div
+                className="flex h-full flex-1 flex-col items-center justify-end gap-2"
+                key={point.t}
+              >
                 <div
                   className="w-full rounded-t-lg bg-[#4F46E5]"
                   style={{
