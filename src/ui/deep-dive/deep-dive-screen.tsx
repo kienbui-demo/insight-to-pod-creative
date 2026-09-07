@@ -1,9 +1,22 @@
-import Link from "next/link";
+"use client";
 
-import type { TrendCard } from "../../../packages/contracts";
+import Link from "next/link";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+
+import type { TrendCard, UiEvent } from "../../../packages/contracts";
 import { AppShell } from "../components/app-shell";
-import { Badge, Panel } from "../components/ui-primitives";
+import { Badge, Panel, primaryActionClass } from "../components/ui-primitives";
 import { formatConfidence } from "../formatters";
+import type { UiEventSource } from "../live-theater/event-source";
+import { LiveTheater } from "../live-theater/live-theater";
+import { createRecordingUiEventSource } from "../live-theater/recording-ui-event-source";
+import { createReplayUiEventSource } from "../live-theater/replay-ui-event-source";
+import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
+import {
+  createSessionStorageTurnStore,
+  type DeepDiveTurnStore,
+  type PersistedTurn,
+} from "./deep-dive-persistence";
 
 const suggestedQuestions = [
   "Why is this opportunity rising?",
@@ -11,7 +24,102 @@ const suggestedQuestions = [
   "How can I differentiate the design?",
 ];
 
-export function DeepDiveScreen({ card }: { card: TrendCard }) {
+type DeepDiveTurn = PersistedTurn & {
+  eventSource: UiEventSource;
+};
+
+function rehydrateTurn(turn: PersistedTurn): DeepDiveTurn {
+  return {
+    ...turn,
+    eventSource: createReplayUiEventSource(turn.events),
+  };
+}
+
+function persistedTurns(turns: DeepDiveTurn[]): PersistedTurn[] {
+  return turns.map(({ turnId, runId, question, events }) => ({
+    turnId,
+    runId,
+    question,
+    events,
+  }));
+}
+
+export function DeepDiveScreen({
+  card,
+  turnStore = createSessionStorageTurnStore(),
+}: {
+  card: TrendCard;
+  turnStore?: DeepDiveTurnStore;
+}) {
+  const [question, setQuestion] = useState("");
+  const [turns, setTurns] = useState<DeepDiveTurn[]>([]);
+  const turnsRef = useRef(turns);
+  const conversationRunIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const restored = turnStore.load(card.id).map(rehydrateTurn);
+    if (restored.length > 0) {
+      conversationRunIdRef.current = restored[0].runId;
+      turnsRef.current = restored;
+      setTurns(restored);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only on mount or card change
+  }, [card.id]);
+
+  function updateTurns(nextTurns: DeepDiveTurn[]): void {
+    turnsRef.current = nextTurns;
+    turnStore.save(card.id, persistedTurns(nextTurns));
+    setTurns(nextTurns);
+  }
+
+  function recordEvent(turnId: string, event: UiEvent): void {
+    updateTurns(
+      turnsRef.current.map((turn) =>
+        turn.turnId === turnId
+          ? { ...turn, events: [...turn.events, event] }
+          : turn,
+      ),
+    );
+  }
+
+  function submitQuestion(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    const trimmedQuestion = question.trim();
+    if (trimmedQuestion.length === 0) {
+      return;
+    }
+
+    conversationRunIdRef.current ??= crypto.randomUUID();
+    const runId = conversationRunIdRef.current;
+    const turnId = crypto.randomUUID();
+    const liveEventSource = createSseUiEventSource({
+      url: "/api/live",
+      runId,
+      request: {
+        kind: "deep-dive",
+        crawl: {
+          source: "google_trends",
+          market: card.market,
+          seed: card.seed,
+          productType: card.productType,
+          mode: "live",
+        },
+        question: trimmedQuestion,
+      },
+      fetch: globalThis.fetch.bind(globalThis),
+      maxReconnects: 1,
+    });
+    const eventSource = createRecordingUiEventSource({
+      source: liveEventSource,
+      onEvent: (streamedEvent) => recordEvent(turnId, streamedEvent),
+    });
+
+    updateTurns([
+      ...turnsRef.current,
+      { turnId, runId, question: trimmedQuestion, events: [], eventSource },
+    ]);
+  }
+
   return (
     <AppShell>
       <div className="grid gap-6 lg:grid-cols-[0.7fr_1.3fr]">
@@ -38,23 +146,60 @@ export function DeepDiveScreen({ card }: { card: TrendCard }) {
           <div>
             <Badge>Secondary panel</Badge>
             <h2 className="mt-3 text-2xl font-semibold text-slate-950">Deep-dive chat</h2>
-            <p className="mt-2 text-sm text-slate-600">
-              Live MA responses will be connected during Phase C.
-            </p>
           </div>
           <div className="mt-8 space-y-3">
-            {suggestedQuestions.map((question) => (
-              <div
-                className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-900"
-                key={question}
+            {suggestedQuestions.map((suggestedQuestion) => (
+              <button
+                className="block w-full rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-left text-sm font-medium text-indigo-900 transition hover:border-indigo-200 hover:bg-indigo-100"
+                key={suggestedQuestion}
+                onClick={() => setQuestion(suggestedQuestion)}
+                type="button"
               >
-                {question}
-              </div>
+                {suggestedQuestion}
+              </button>
             ))}
           </div>
-          <div className="mt-auto rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-400">
-            Ask about this opportunity…
+
+          <div className="mt-6 space-y-6">
+            {turns.length > 0 ? (
+              turns.map((turn) => (
+                <article className="space-y-3" key={turn.turnId}>
+                  <p className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-900">
+                    {turn.question}
+                  </p>
+                  <LiveTheater
+                    eventSource={turn.eventSource}
+                    key={turn.turnId}
+                  />
+                </article>
+              ))
+            ) : (
+              <p className="text-sm text-slate-600">
+                Ask a question to start a live deep-dive.
+              </p>
+            )}
           </div>
+
+          <form className="mt-auto flex gap-3 pt-6" onSubmit={submitQuestion}>
+            <label className="sr-only" htmlFor="deep-dive-question">
+              Ask about this opportunity
+            </label>
+            <input
+              className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              id="deep-dive-question"
+              onChange={(event) => setQuestion(event.target.value)}
+              placeholder="Ask about this opportunity…"
+              type="text"
+              value={question}
+            />
+            <button
+              className={`${primaryActionClass} disabled:cursor-not-allowed disabled:opacity-50`}
+              disabled={question.trim().length === 0}
+              type="submit"
+            >
+              Ask
+            </button>
+          </form>
         </Panel>
       </div>
     </AppShell>

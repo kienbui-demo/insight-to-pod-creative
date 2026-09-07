@@ -3,23 +3,35 @@ import type {
   LiveRun,
   LiveSessionPort,
   RawMaEvent,
+  TrendCardLookupPort,
 } from "../bff/types";
-import type { CrawlSource, MetricSink } from "../../packages/contracts";
+import type {
+  CrawlSource,
+  MetricObservation,
+  MetricSink,
+  TrendCard,
+} from "../../packages/contracts";
 import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
 import { SafeMetricSink } from "../monitoring/safe-metric-sink";
 import { mapManagedAgentEvents } from "./ma-event-mapper";
 import type {
+  CrawlPort,
+  CrawlPortInput,
+  CrawlPortResult,
   ManagedAgentClientPort,
   ManagedAgentEvent,
   ManagedAgentSessionPort,
   SeedreamImagePort,
 } from "./ports";
+import { warehouseCrawlRecords } from "./warehouse-crawl-records";
 
 interface CreateModelArkLiveSessionPortOptions {
   client: ManagedAgentClientPort;
+  crawl?: CrawlPort;
   seedream: SeedreamImagePort;
   maxImagesPerAction: 1;
   metricSink?: MetricSink;
+  lookup?: TrendCardLookupPort;
 }
 
 class AsyncEventQueue<T> implements AsyncIterable<T> {
@@ -97,11 +109,18 @@ class AsyncEventQueue<T> implements AsyncIterable<T> {
 class ModelArkLiveRun implements LiveRun {
   private readonly output = new AsyncEventQueue<RawMaEvent>();
   private readonly failedSources = new Set<CrawlSource>();
+  private readonly toolUses = new Map<string, ManagedAgentEvent>();
+  private readonly fulfilledToolUses = new Set<string>();
+  private crawlContext: Omit<CrawlPortInput, "source"> | undefined;
+  private servedCard: TrendCard | undefined;
 
   constructor(
     private readonly session: ManagedAgentSessionPort,
     rawEvents: AsyncIterable<ManagedAgentEvent>,
+    private readonly crawl: CrawlPort | undefined,
+    private readonly seedream: SeedreamImagePort,
     private readonly metricSink: MetricSink,
+    private readonly lookup: TrendCardLookupPort | undefined,
   ) {
     void this.pump(rawEvents);
   }
@@ -123,6 +142,24 @@ class ModelArkLiveRun implements LiveRun {
   }
 
   async send(request: BffRequest): Promise<void> {
+    this.servedCard = undefined;
+    if (
+      (request.kind === "generate-design" || request.kind === "deep-dive") &&
+      this.lookup !== undefined
+    ) {
+      try {
+        const result = await this.lookup.lookup(request.crawl);
+        if (result.kind === "hit") {
+          this.servedCard = result.card;
+        }
+      } catch {
+        // A lookup failure is a cache miss; the existing live crawl path remains available.
+      }
+    }
+    const { source: _source, mode: _mode, ...crawlContext } = request.crawl;
+    void _source;
+    void _mode;
+    this.crawlContext = crawlContext;
     await this.session.send(request);
   }
 
@@ -134,6 +171,9 @@ class ModelArkLiveRun implements LiveRun {
   private async pump(events: AsyncIterable<ManagedAgentEvent>): Promise<void> {
     try {
       for await (const event of events) {
+        if (event.type === "agent.custom_tool_use") {
+          this.toolUses.set(event.id, event);
+        }
         if (event.type === "session.error" && event.error.source !== undefined) {
           this.failedSources.add(event.error.source);
         }
@@ -193,7 +233,127 @@ class ModelArkLiveRun implements LiveRun {
           this.output.close();
           return;
         }
+        if (
+          event.type === "session.status_idle" &&
+          event.stop_reason.type === "requires_action"
+        ) {
+          const imageResultPromises = new Map<
+            string,
+            ReturnType<SeedreamImagePort["generate"]>
+          >();
+          for (const toolUseId of event.stop_reason.event_ids) {
+            if (this.fulfilledToolUses.has(toolUseId)) {
+              continue;
+            }
+            const toolUse = this.toolUses.get(toolUseId);
+            if (
+              toolUse?.type !== "agent.custom_tool_use" ||
+              toolUse.name !== "generate_design_image"
+            ) {
+              continue;
+            }
+            const resultPromise = this.seedream.generate(toolUse.input);
+            void resultPromise.catch(() => undefined);
+            imageResultPromises.set(toolUseId, resultPromise);
+          }
 
+          for (const toolUseId of event.stop_reason.event_ids) {
+            if (this.fulfilledToolUses.has(toolUseId)) {
+              continue;
+            }
+            const toolUse = this.toolUses.get(toolUseId);
+            if (toolUse?.type !== "agent.custom_tool_use") {
+              continue;
+            }
+            if (toolUse.name === "crawl") {
+              const servedCard = this.servedCard;
+              const result: CrawlPortResult =
+                servedCard !== undefined
+                  ? warehouseCrawlRecords(servedCard, toolUse.input.source)
+                  : this.crawlContext === undefined || this.crawl === undefined
+                    ? {
+                        ok: false,
+                        recoverable: false,
+                        message: "crawl context unavailable",
+                      }
+                    : await this.crawl.fetch({
+                        source: toolUse.input.source,
+                        ...this.crawlContext,
+                      });
+              if (!result.ok) {
+                this.failedSources.add(toolUse.input.source);
+              }
+              const crawlMetric = {
+                name: "ptv_crawl_source_run_total",
+                kind: "counter",
+                value: 1,
+                labels: {
+                  source: toolUse.input.source,
+                  mode: servedCard === undefined ? "live" : "warehouse",
+                  outcome: !result.ok
+                    ? "failure"
+                    : result.records.length === 0
+                      ? "empty"
+                      : "success",
+                  stage: "execute",
+                },
+                observedAt: new Date().toISOString(),
+                observationId: `live-crawl:${toolUseId}:execute`,
+              } as const;
+              // P9 adds a warehouse execution label while the frozen C8 contract
+              // still models only CrawlRequest modes ("batch" | "live").
+              this.metricSink.record(crawlMetric as MetricObservation);
+
+              const resultEvent = {
+                id: `${toolUseId}:result`,
+                type: "user.custom_tool_result",
+                custom_tool_use_id: toolUseId,
+                name: "crawl",
+                input: { source: toolUse.input.source },
+                result,
+              } satisfies ManagedAgentEvent;
+              await this.session.submitCustomToolResult(resultEvent);
+              this.fulfilledToolUses.add(toolUseId);
+              for (const mapped of mapManagedAgentEvents([resultEvent])) {
+                this.output.push(mapped);
+              }
+              continue;
+            }
+
+            const imageResultPromise = imageResultPromises.get(toolUseId);
+            if (
+              toolUse.name !== "generate_design_image" ||
+              imageResultPromise === undefined
+            ) {
+              continue;
+            }
+
+            const resultEvent = {
+              id: `${toolUseId}:result`,
+              type: "user.custom_tool_result",
+              custom_tool_use_id: toolUseId,
+              name: "generate_design_image",
+              input: toolUse.input,
+              result: await imageResultPromise,
+            } satisfies ManagedAgentEvent;
+            await this.session.submitCustomToolResult(resultEvent);
+            this.fulfilledToolUses.add(toolUseId);
+            for (const mapped of mapManagedAgentEvents([resultEvent])) {
+              this.output.push(mapped);
+            }
+          }
+          continue;
+        }
+
+        if (
+          event.type === "agent.custom_tool_use" &&
+          event.name === "crawl" &&
+          this.servedCard !== undefined
+        ) {
+          // Warehouse-served crawl: data comes from the warehouse, so do not
+          // surface a "scanning" UI event for this crawl tool-use.
+          continue;
+        }
         for (const mapped of mapManagedAgentEvents([event])) {
           this.output.push(mapped);
         }
@@ -215,7 +375,14 @@ export function createModelArkLiveSessionPort(
     async create(runId: string): Promise<LiveRun> {
       const session = await options.client.attachOrCreate(runId);
       const rawEvents = session.openEvents();
-      return new ModelArkLiveRun(session, rawEvents, metricSink);
+      return new ModelArkLiveRun(
+        session,
+        rawEvents,
+        options.crawl,
+        options.seedream,
+        metricSink,
+        options.lookup,
+      );
     },
   };
 }

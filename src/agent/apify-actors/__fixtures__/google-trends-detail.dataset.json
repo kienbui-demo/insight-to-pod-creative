@@ -1,0 +1,40 @@
+[
+  {
+    "schemaVersion": 1,
+    "surface": "interestOverTime",
+    "keyword": "retro halloween cats",
+    "geo": "US",
+    "timeRange": "today 12-m",
+    "category": 0,
+    "property": "",
+    "comparedWith": null,
+    "sharedScale": false,
+    "fetchedAt": "2026-08-30T18:01:55.138Z",
+    "data": {
+      "points": [
+        { "date": "2025-08-24T00:00:00.000Z", "timestamp": 1755993600, "formattedTime": "Aug 24 – 30, 2025", "value": 50, "isPartial": false },
+        { "date": "2025-08-31T00:00:00.000Z", "timestamp": 1756598400, "formattedTime": "Aug 31 – Sep 6, 2025", "value": 45, "isPartial": false },
+        { "date": "2025-09-07T00:00:00.000Z", "timestamp": 1757203200, "formattedTime": "Sep 7 – 13, 2025", "value": 41, "isPartial": false },
+        { "date": "2025-09-14T00:00:00.000Z", "timestamp": 1757808000, "formattedTime": "Sep 14 – 20, 2025", "value": 39, "isPartial": false },
+        { "date": "2025-09-21T00:00:00.000Z", "timestamp": 1758412800, "formattedTime": "Sep 21 – 27, 2025", "value": 42, "isPartial": false },
+        { "date": "2025-09-28T00:00:00.000Z", "timestamp": 1759017600, "formattedTime": "Sep 28 – Oct 4, 2025", "value": 43, "isPartial": false }
+      ]
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "surface": "relatedQueries",
+    "keyword": "retro halloween cats",
+    "geo": "US",
+    "timeRange": "today 12-m",
+    "category": 0,
+    "property": "",
+    "comparedWith": null,
+    "sharedScale": false,
+    "fetchedAt": "2026-08-30T18:01:55.138Z",
+    "data": {
+      "top": [{ "query": "halloween cats", "value": 100 }],
+      "rising": [{ "query": "retro cats", "value": 250 }]
+    }
+  }
+]

@@ -91,6 +91,33 @@ describe("in-memory SSE stream", () => {
     expect(text).toContain("id: stable-run-id:done\nevent: done\n");
   });
 
+  it("emits an answer without terminating later stream events", async () => {
+    const live: RawMaEvent[] = [
+      {
+        id: "answer-1",
+        type: "agent_message",
+        text: "Design is ready",
+      },
+      { id: "progress-after-answer", type: "synthesis_chunk" },
+    ];
+
+    const text = await new Response(
+      createSseStream({
+        runId: "answer-run",
+        history: [],
+        live: finiteEvents(live),
+      }),
+    ).text();
+
+    expect(text).toContain("id: answer-1\nevent: answer\n");
+    expect(text.indexOf("id: answer-1\n")).toBeLessThan(
+      text.indexOf("id: progress-after-answer\n"),
+    );
+    expect(text.indexOf("id: progress-after-answer\n")).toBeLessThan(
+      text.indexOf("id: answer-run:done\n"),
+    );
+  });
+
   it("emits an unrecoverable error and closes without done or later events", async () => {
     const live: RawMaEvent[] = [
       {

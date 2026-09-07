@@ -1,0 +1,389 @@
+[
+  {
+    "schemaVersion": 1,
+    "surface": "interestOverTime",
+    "keyword": "leather wallet for men",
+    "geo": "worldwide",
+    "timeRange": "today 12-m",
+    "category": 0,
+    "property": "",
+    "comparedWith": null,
+    "sharedScale": false,
+    "fetchedAt": "2026-09-04T10:00:57.050Z",
+    "data": {
+      "points": [
+        {
+          "date": "2025-08-31T00:00:00.000Z",
+          "timestamp": 1756598400,
+          "formattedTime": "Aug 31 – Sep 6, 2025",
+          "value": 13,
+          "isPartial": false
+        },
+        {
+          "date": "2025-09-07T00:00:00.000Z",
+          "timestamp": 1757203200,
+          "formattedTime": "Sep 7 – 13, 2025",
+          "value": 11,
+          "isPartial": false
+        },
+        {
+          "date": "2025-09-14T00:00:00.000Z",
+          "timestamp": 1757808000,
+          "formattedTime": "Sep 14 – 20, 2025",
+          "value": 9,
+          "isPartial": false
+        },
+        {
+          "date": "2025-09-21T00:00:00.000Z",
+          "timestamp": 1758412800,
+          "formattedTime": "Sep 21 – 27, 2025",
+          "value": 10,
+          "isPartial": false
+        },
+        {
+          "date": "2025-09-28T00:00:00.000Z",
+          "timestamp": 1759017600,
+          "formattedTime": "Sep 28 – Oct 4, 2025",
+          "value": 11,
+          "isPartial": false
+        },
+        {
+          "date": "2025-10-05T00:00:00.000Z",
+          "timestamp": 1759622400,
+          "formattedTime": "Oct 5 – 11, 2025",
+          "value": 9,
+          "isPartial": false
+        },
+        {
+          "date": "2025-10-12T00:00:00.000Z",
+          "timestamp": 1760227200,
+          "formattedTime": "Oct 12 – 18, 2025",
+          "value": 11,
+          "isPartial": false
+        },
+        {
+          "date": "2025-10-19T00:00:00.000Z",
+          "timestamp": 1760832000,
+          "formattedTime": "Oct 19 – 25, 2025",
+          "value": 11,
+          "isPartial": false
+        },
+        {
+          "date": "2025-10-26T00:00:00.000Z",
+          "timestamp": 1761436800,
+          "formattedTime": "Oct 26 – Nov 1, 2025",
+          "value": 10,
+          "isPartial": false
+        },
+        {
+          "date": "2025-11-02T00:00:00.000Z",
+          "timestamp": 1762041600,
+          "formattedTime": "Nov 2 – 8, 2025",
+          "value": 10,
+          "isPartial": false
+        },
+        {
+          "date": "2025-11-09T00:00:00.000Z",
+          "timestamp": 1762646400,
+          "formattedTime": "Nov 9 – 15, 2025",
+          "value": 12,
+          "isPartial": false
+        },
+        {
+          "date": "2025-11-16T00:00:00.000Z",
+          "timestamp": 1763251200,
+          "formattedTime": "Nov 16 – 22, 2025",
+          "value": 12,
+          "isPartial": false
+        },
+        {
+          "date": "2025-11-23T00:00:00.000Z",
+          "timestamp": 1763856000,
+          "formattedTime": "Nov 23 – 29, 2025",
+          "value": 18,
+          "isPartial": false
+        },
+        {
+          "date": "2025-11-30T00:00:00.000Z",
+          "timestamp": 1764460800,
+          "formattedTime": "Nov 30 – Dec 6, 2025",
+          "value": 23,
+          "isPartial": false
+        },
+        {
+          "date": "2025-12-07T00:00:00.000Z",
+          "timestamp": 1765065600,
+          "formattedTime": "Dec 7 – 13, 2025",
+          "value": 20,
+          "isPartial": false
+        },
+        {
+          "date": "2025-12-14T00:00:00.000Z",
+          "timestamp": 1765670400,
+          "formattedTime": "Dec 14 – 20, 2025",
+          "value": 17,
+          "isPartial": false
+        },
+        {
+          "date": "2025-12-21T00:00:00.000Z",
+          "timestamp": 1766275200,
+          "formattedTime": "Dec 21 – 27, 2025",
+          "value": 12,
+          "isPartial": false
+        },
+        {
+          "date": "2025-12-28T00:00:00.000Z",
+          "timestamp": 1766880000,
+          "formattedTime": "Dec 28, 2025 – Jan 3, 2026",
+          "value": 10,
+          "isPartial": false
+        },
+        {
+          "date": "2026-01-04T00:00:00.000Z",
+          "timestamp": 1767484800,
+          "formattedTime": "Jan 4 – 10, 2026",
+          "value": 10,
+          "isPartial": false
+        },
+        {
+          "date": "2026-01-11T00:00:00.000Z",
+          "timestamp": 1768089600,
+          "formattedTime": "Jan 11 – 17, 2026",
+          "value": 9,
+          "isPartial": false
+        },
+        {
+          "date": "2026-01-18T00:00:00.000Z",
+          "timestamp": 1768694400,
+          "formattedTime": "Jan 18 – 24, 2026",
+          "value": 10,
+          "isPartial": false
+        },
+        {
+          "date": "2026-01-25T00:00:00.000Z",
+          "timestamp": 1769299200,
+          "formattedTime": "Jan 25 – 31, 2026",
+          "value": 9,
+          "isPartial": false
+        },
+        {
+          "date": "2026-02-01T00:00:00.000Z",
+          "timestamp": 1769904000,
+          "formattedTime": "Feb 1 – 7, 2026",
+          "value": 12,
+          "isPartial": false
+        },
+        {
+          "date": "2026-02-08T00:00:00.000Z",
+          "timestamp": 1770508800,
+          "formattedTime": "Feb 8 – 14, 2026",
+          "value": 33,
+          "isPartial": false
+        },
+        {
+          "date": "2026-02-15T00:00:00.000Z",
+          "timestamp": 1771113600,
+          "formattedTime": "Feb 15 – 21, 2026",
+          "value": 37,
+          "isPartial": false
+        },
+        {
+          "date": "2026-02-22T00:00:00.000Z",
+          "timestamp": 1771718400,
+          "formattedTime": "Feb 22 – 28, 2026",
+          "value": 20,
+          "isPartial": false
+        },
+        {
+          "date": "2026-03-01T00:00:00.000Z",
+          "timestamp": 1772323200,
+          "formattedTime": "Mar 1 – 7, 2026",
+          "value": 11,
+          "isPartial": false
+        },
+        {
+          "date": "2026-03-08T00:00:00.000Z",
+          "timestamp": 1772928000,
+          "formattedTime": "Mar 8 – 14, 2026",
+          "value": 9,
+          "isPartial": false
+        },
+        {
+          "date": "2026-03-15T00:00:00.000Z",
+          "timestamp": 1773532800,
+          "formattedTime": "Mar 15 – 21, 2026",
+          "value": 11,
+          "isPartial": false
+        },
+        {
+          "date": "2026-03-22T00:00:00.000Z",
+          "timestamp": 1774137600,
+          "formattedTime": "Mar 22 – 28, 2026",
+          "value": 53,
+          "isPartial": false
+        },
+        {
+          "date": "2026-03-29T00:00:00.000Z",
+          "timestamp": 1774742400,
+          "formattedTime": "Mar 29 – Apr 4, 2026",
+          "value": 84,
+          "isPartial": false
+        },
+        {
+          "date": "2026-04-05T00:00:00.000Z",
+          "timestamp": 1775347200,
+          "formattedTime": "Apr 5 – 11, 2026",
+          "value": 89,
+          "isPartial": false
+        },
+        {
+          "date": "2026-04-12T00:00:00.000Z",
+          "timestamp": 1775952000,
+          "formattedTime": "Apr 12 – 18, 2026",
+          "value": 97,
+          "isPartial": false
+        },
+        {
+          "date": "2026-04-19T00:00:00.000Z",
+          "timestamp": 1776556800,
+          "formattedTime": "Apr 19 – 25, 2026",
+          "value": 85,
+          "isPartial": false
+        },
+        {
+          "date": "2026-04-26T00:00:00.000Z",
+          "timestamp": 1777161600,
+          "formattedTime": "Apr 26 – May 2, 2026",
+          "value": 79,
+          "isPartial": false
+        },
+        {
+          "date": "2026-05-03T00:00:00.000Z",
+          "timestamp": 1777766400,
+          "formattedTime": "May 3 – 9, 2026",
+          "value": 96,
+          "isPartial": false
+        },
+        {
+          "date": "2026-05-10T00:00:00.000Z",
+          "timestamp": 1778371200,
+          "formattedTime": "May 10 – 16, 2026",
+          "value": 100,
+          "isPartial": false
+        },
+        {
+          "date": "2026-05-17T00:00:00.000Z",
+          "timestamp": 1778976000,
+          "formattedTime": "May 17 – 23, 2026",
+          "value": 74,
+          "isPartial": false
+        },
+        {
+          "date": "2026-05-24T00:00:00.000Z",
+          "timestamp": 1779580800,
+          "formattedTime": "May 24 – 30, 2026",
+          "value": 58,
+          "isPartial": false
+        },
+        {
+          "date": "2026-05-31T00:00:00.000Z",
+          "timestamp": 1780185600,
+          "formattedTime": "May 31 – Jun 6, 2026",
+          "value": 61,
+          "isPartial": false
+        },
+        {
+          "date": "2026-06-07T00:00:00.000Z",
+          "timestamp": 1780790400,
+          "formattedTime": "Jun 7 – 13, 2026",
+          "value": 32,
+          "isPartial": false
+        },
+        {
+          "date": "2026-06-14T00:00:00.000Z",
+          "timestamp": 1781395200,
+          "formattedTime": "Jun 14 – 20, 2026",
+          "value": 26,
+          "isPartial": false
+        },
+        {
+          "date": "2026-06-21T00:00:00.000Z",
+          "timestamp": 1782000000,
+          "formattedTime": "Jun 21 – 27, 2026",
+          "value": 21,
+          "isPartial": false
+        },
+        {
+          "date": "2026-06-28T00:00:00.000Z",
+          "timestamp": 1782604800,
+          "formattedTime": "Jun 28 – Jul 4, 2026",
+          "value": 13,
+          "isPartial": false
+        },
+        {
+          "date": "2026-07-05T00:00:00.000Z",
+          "timestamp": 1783209600,
+          "formattedTime": "Jul 5 – 11, 2026",
+          "value": 13,
+          "isPartial": false
+        },
+        {
+          "date": "2026-07-12T00:00:00.000Z",
+          "timestamp": 1783814400,
+          "formattedTime": "Jul 12 – 18, 2026",
+          "value": 11,
+          "isPartial": false
+        },
+        {
+          "date": "2026-07-19T00:00:00.000Z",
+          "timestamp": 1784419200,
+          "formattedTime": "Jul 19 – 25, 2026",
+          "value": 11,
+          "isPartial": false
+        },
+        {
+          "date": "2026-07-26T00:00:00.000Z",
+          "timestamp": 1785024000,
+          "formattedTime": "Jul 26 – Aug 1, 2026",
+          "value": 15,
+          "isPartial": false
+        },
+        {
+          "date": "2026-08-02T00:00:00.000Z",
+          "timestamp": 1785628800,
+          "formattedTime": "Aug 2 – 8, 2026",
+          "value": 12,
+          "isPartial": false
+        },
+        {
+          "date": "2026-08-09T00:00:00.000Z",
+          "timestamp": 1786233600,
+          "formattedTime": "Aug 9 – 15, 2026",
+          "value": 20,
+          "isPartial": false
+        },
+        {
+          "date": "2026-08-16T00:00:00.000Z",
+          "timestamp": 1786838400,
+          "formattedTime": "Aug 16 – 22, 2026",
+          "value": 27,
+          "isPartial": false
+        },
+        {
+          "date": "2026-08-23T00:00:00.000Z",
+          "timestamp": 1787443200,
+          "formattedTime": "Aug 23 – 29, 2026",
+          "value": 16,
+          "isPartial": false
+        },
+        {
+          "date": "2026-08-30T00:00:00.000Z",
+          "timestamp": 1788048000,
+          "formattedTime": "Aug 30 – Sep 5, 2026",
+          "value": 19,
+          "isPartial": true
+        }
+      ]
+    }
+  }
+]

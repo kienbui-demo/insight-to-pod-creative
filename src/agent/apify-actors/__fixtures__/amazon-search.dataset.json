@@ -1,0 +1,58 @@
+[
+  {
+    "asin": "B001DHECXA",
+    "productTitle": "TECKNET 2.4G Wireless Mouse, 4800 DPI Ergonomic Computer Mouse, USB, Grey | Mouse for Laptop with USB Receiver, 6 Adjustable DPI, Quiet Click, 30-Month Battery, 6 Button, Portable for PC Chromebook Mac",
+    "productPrice": "$9.99",
+    "currency": "USD",
+    "productStarRating": 4.4,
+    "productNumRatings": 502,
+    "isSponsored": true,
+    "isPrime": true,
+    "position": 3,
+    "page": 1,
+    "productUrl": "https://www.amazon.com/dp/B001DHECXA",
+    "searchQuery": "wireless mouse"
+  },
+  {
+    "asin": "B004YAVF8I",
+    "productTitle": "Logitech M185 Compact Ambidextrous 2.4 GHz Wireless Mouse - Swift Grey | Ambidextrous mouse with 2.4 GHz USB-A Nano Receiver, Optical Tracking, 12-Months Battery Life, PC, Mac, Laptop compatible",
+    "productPrice": "$13.97",
+    "currency": "USD",
+    "productStarRating": 4.4,
+    "productNumRatings": 448,
+    "isSponsored": false,
+    "isPrime": true,
+    "position": 5,
+    "page": 1,
+    "productUrl": "https://www.amazon.com/Logitech-Wireless-Mouse-M185-Swift/dp/B004YAVF8I/ref=sr_1_3",
+    "searchQuery": "wireless mouse"
+  },
+  {
+    "asin": "B07CMS5Q6P",
+    "productTitle": "Logitech G305 Lightspeed Wireless Gaming Mouse - Black | 12,000 DPI, Lightweight, 6 Programmable Buttons, 250h Battery, On-Board Memory, Compatible with PC and Mac",
+    "productPrice": "$29.99",
+    "currency": "USD",
+    "productStarRating": 4.6,
+    "productNumRatings": 398,
+    "isSponsored": false,
+    "isPrime": true,
+    "position": 6,
+    "page": 1,
+    "productUrl": "https://www.amazon.com/Logitech-LIGHTSPEED-Wireless-Gaming-Mouse/dp/B07CMS5Q6P/ref=sr_1_4",
+    "searchQuery": "wireless mouse"
+  },
+  {
+    "asin": "B0DL72PK1P",
+    "productTitle": "Apple Magic Mouse - White Multi-Touch Surface ​​​​​​​",
+    "productPrice": "$79.00",
+    "currency": "USD",
+    "productStarRating": 4.4,
+    "productNumRatings": 34,
+    "isSponsored": false,
+    "isPrime": true,
+    "position": 23,
+    "page": 1,
+    "productUrl": "https://www.amazon.com/Apple-Magic-Mouse-Multi-Touch-Surface/dp/B0DL72PK1P/ref=sr_1_14",
+    "searchQuery": "wireless mouse"
+  }
+]

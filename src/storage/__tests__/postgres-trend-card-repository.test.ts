@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { TrendCard } from "../../../packages/contracts";
+import { InMemoryMetricSink } from "../../monitoring/in-memory-metric-sink";
 import {
   PostgresTrendCardRepository,
   type EmbeddingProvider,
@@ -79,6 +80,149 @@ class MockEmbeddingProvider implements EmbeddingProvider {
 }
 
 describe("PostgresTrendCardRepository", () => {
+  describe("save", () => {
+    it("upserts a card WITH embedding", async () => {
+      const executor = new MockQueryExecutor([]);
+      const metricSink = new InMemoryMetricSink();
+      const repository = new PostgresTrendCardRepository(
+        executor,
+        new MockEmbeddingProvider([0.1, 0.2]),
+        metricSink,
+      );
+      const embedding = [0.1, 0.2, -0.3];
+
+      await repository.save(EXPECTED_CARD, embedding);
+
+      expect(executor.calls).toHaveLength(1);
+      expect(executor.calls[0].sql).toContain("INSERT INTO trend_cards");
+      expect(executor.calls[0].sql).toContain(
+        "ON CONFLICT (id) DO UPDATE",
+      );
+      expect(executor.calls[0].sql).toContain("$14::vector");
+      expect(executor.calls[0].parameters[13]).toBe(
+        JSON.stringify(embedding),
+      );
+      expect(metricSink.snapshot().counters).toContainEqual({
+        name: "ptv_infra_operation_total",
+        labels: {
+          component: "postgres",
+          operation: "trend_card_save",
+          outcome: "success",
+        },
+        value: 1,
+      });
+    });
+
+    it("upserts a card WITHOUT embedding passes null", async () => {
+      const executor = new MockQueryExecutor([]);
+      const repository = new PostgresTrendCardRepository(
+        executor,
+        new MockEmbeddingProvider([0.1, 0.2]),
+      );
+
+      await repository.save(EXPECTED_CARD);
+
+      expect(executor.calls).toHaveLength(1);
+      expect(executor.calls[0].parameters[13]).toBeNull();
+      expect(executor.calls[0].sql).toContain(
+        "COALESCE(EXCLUDED.embedding",
+      );
+    });
+
+    it("propagates + records error", async () => {
+      const failure = new Error("database unavailable");
+      const executor: QueryExecutor = {
+        async query() {
+          throw failure;
+        },
+      };
+      const metricSink = new InMemoryMetricSink();
+      const repository = new PostgresTrendCardRepository(
+        executor,
+        new MockEmbeddingProvider([0.1, 0.2]),
+        metricSink,
+      );
+
+      await expect(repository.save(EXPECTED_CARD)).rejects.toBe(failure);
+      expect(metricSink.snapshot().counters).toContainEqual({
+        name: "ptv_infra_operation_total",
+        labels: {
+          component: "postgres",
+          operation: "trend_card_save",
+          outcome: "error",
+        },
+        value: 1,
+      });
+    });
+  });
+
+  it("lists recent cards with a parameterized limit and maps every row", async () => {
+    const secondRow = {
+      ...DATABASE_ROW,
+      id: "card-postgres-2",
+      seed: "bookish winter club",
+      product_type: null,
+      updated_at: "2026-08-25T12:00:00.000Z",
+    };
+    const executor = new MockQueryExecutor([DATABASE_ROW, secondRow]);
+    const embeddings = new MockEmbeddingProvider([0.1, 0.2]);
+    const repository = new PostgresTrendCardRepository(executor, embeddings);
+
+    const result = await repository.listRecent(37);
+
+    expect(result).toEqual([
+      EXPECTED_CARD,
+      {
+        ...EXPECTED_CARD,
+        id: "card-postgres-2",
+        seed: "bookish winter club",
+        productType: undefined,
+        updatedAt: "2026-08-25T12:00:00.000Z",
+      },
+    ]);
+    expect(executor.calls).toHaveLength(1);
+    expect(executor.calls[0].parameters).toEqual([37]);
+    expect(executor.calls[0].sql).toContain("ORDER BY updated_at DESC");
+    expect(executor.calls[0].sql).toContain("LIMIT $1");
+    expect(executor.calls[0].sql).not.toContain("37");
+    expect(embeddings.calls).toHaveLength(0);
+  });
+
+  it("returns an empty list when the recent-card query has no rows", async () => {
+    const executor = new MockQueryExecutor([]);
+    const repository = new PostgresTrendCardRepository(
+      executor,
+      new MockEmbeddingProvider([0.1, 0.2]),
+    );
+
+    await expect(repository.listRecent(24)).resolves.toEqual([]);
+  });
+
+  it("finds a card by its parameterized id and maps the row", async () => {
+    const executor = new MockQueryExecutor([DATABASE_ROW]);
+    const embeddings = new MockEmbeddingProvider([0.1, 0.2]);
+    const repository = new PostgresTrendCardRepository(executor, embeddings);
+
+    const result = await repository.findById("card-postgres");
+
+    expect(result).toEqual(EXPECTED_CARD);
+    expect(executor.calls).toHaveLength(1);
+    expect(executor.calls[0].parameters).toEqual(["card-postgres"]);
+    expect(executor.calls[0].sql).toContain("WHERE id = $1");
+    expect(executor.calls[0].sql).not.toContain("card-postgres");
+    expect(embeddings.calls).toHaveLength(0);
+  });
+
+  it("returns null when the id query has no rows", async () => {
+    const executor = new MockQueryExecutor([]);
+    const repository = new PostgresTrendCardRepository(
+      executor,
+      new MockEmbeddingProvider([0.1, 0.2]),
+    );
+
+    await expect(repository.findById("missing-card")).resolves.toBeNull();
+  });
+
   it("performs a parameterized exact lookup and maps the row", async () => {
     const executor = new MockQueryExecutor([DATABASE_ROW]);
     const embeddings = new MockEmbeddingProvider([0.1, 0.2]);

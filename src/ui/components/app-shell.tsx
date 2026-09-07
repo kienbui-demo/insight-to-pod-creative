@@ -1,14 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-const MOCK_CARD_ID = "trend-retro-halloween-cats";
-
-const navigation = [
-  { href: "/", label: "Discover" },
-  { href: `/trends/${MOCK_CARD_ID}`, label: "Trend Card" },
-  { href: `/studio/${MOCK_CARD_ID}`, label: "Design Studio" },
-  { href: `/deep-dive/${MOCK_CARD_ID}`, label: "Deep-dive" },
-];
+const navigation = [{ href: "/", label: "Discover" }];
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (

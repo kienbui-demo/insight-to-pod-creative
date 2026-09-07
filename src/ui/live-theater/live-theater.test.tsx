@@ -1,5 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { TrendCard, UiEvent } from "../../../packages/contracts";
 import type { UiEventSource } from "./event-source";
@@ -63,6 +63,42 @@ class FakeUiEventSource implements UiEventSource {
 }
 
 describe("LiveTheater", () => {
+  it("keeps the Image ready label when a synthesizing frame arrives after image:ready", async () => {
+    const eventSource = new FakeUiEventSource();
+    render(<LiveTheater eventSource={eventSource} />);
+
+    await act(async () => {
+      eventSource.emit({
+        id: "s1",
+        type: "synthesizing",
+        note: "Comparing signals",
+      } satisfies UiEvent);
+    });
+    expect(await screen.findByText("Synthesizing signals")).toBeInTheDocument();
+
+    await act(async () => {
+      eventSource.emit({
+        id: "img",
+        type: "image:ready",
+        url: "https://tos.example/generated.png",
+      } satisfies UiEvent);
+    });
+    expect(await screen.findByText("Image ready")).toBeInTheDocument();
+
+    // trailing synthesizing frame that today wrongly regresses the label
+    await act(async () => {
+      eventSource.emit({
+        id: "s2",
+        type: "synthesizing",
+        note: "Finalizing",
+      } satisfies UiEvent);
+    });
+
+    // must NOT regress
+    expect(screen.getByText("Image ready")).toBeInTheDocument();
+    expect(screen.queryByText("Synthesizing signals")).not.toBeInTheDocument();
+  });
+
   it("reflects an injected UiEvent stream without opening a network connection", async () => {
     const eventSource = new FakeUiEventSource();
 
@@ -110,6 +146,19 @@ describe("LiveTheater", () => {
     expect(await screen.findByText(TREND_CARD.seed)).toBeInTheDocument();
     expect(screen.getByText("84/100")).toBeInTheDocument();
 
+    const answerText =
+      "Design **ready**. [Open image](https://tos.example/generated.png)";
+    await act(async () => {
+      eventSource.emit({
+        id: "event-answer",
+        type: "answer",
+        text: answerText,
+      } satisfies UiEvent);
+    });
+    const answer = await screen.findByText(answerText);
+    const cardBlock = screen.getByText(TREND_CARD.seed).closest("div");
+    expect(cardBlock?.nextElementSibling).toBe(answer);
+
     await act(async () => {
       eventSource.emit({
         id: "event-5",
@@ -130,5 +179,67 @@ describe("LiveTheater", () => {
       } satisfies UiEvent);
     });
     expect(await screen.findByText("Analysis complete")).toBeInTheDocument();
+    expect(screen.getByText(answerText)).toBeInTheDocument();
+  });
+
+  it("reports each distinct generated image URL exactly once", async () => {
+    const eventSource = new FakeUiEventSource();
+    const onImageReady = vi.fn();
+    render(
+      <LiveTheater
+        eventSource={eventSource}
+        onImageReady={onImageReady}
+      />,
+    );
+
+    await act(async () => {
+      eventSource.emit({
+        id: "image-1",
+        type: "image:ready",
+        url: "https://tos.example/generated.png",
+      });
+    });
+    await act(async () => {
+      eventSource.emit({
+        id: "image-2",
+        type: "image:ready",
+        url: "https://tos.example/generated.png",
+      });
+    });
+    await act(async () => {
+      eventSource.emit({
+        id: "image-3",
+        type: "image:ready",
+        url: "https://tos.example/generated-v2.png",
+      });
+    });
+
+    expect(onImageReady).toHaveBeenCalledTimes(2);
+    expect(onImageReady).toHaveBeenNthCalledWith(
+      1,
+      "https://tos.example/generated.png",
+    );
+    expect(onImageReady).toHaveBeenNthCalledWith(
+      2,
+      "https://tos.example/generated-v2.png",
+    );
+  });
+
+  it("renders an image embedded in answer prose as an img", async () => {
+    const eventSource = new FakeUiEventSource();
+
+    render(<LiveTheater eventSource={eventSource} />);
+
+    await act(async () => {
+      eventSource.emit({
+        id: "answer-with-image",
+        type: "answer",
+        text: "Your design is ready: ![result](https://tos.example/from-answer.png)",
+      } satisfies UiEvent);
+    });
+
+    expect(
+      await screen.findByRole("img", { name: "Generated design" }),
+    ).toHaveAttribute("src", "https://tos.example/from-answer.png");
   });
 });

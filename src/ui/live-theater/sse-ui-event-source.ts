@@ -104,6 +104,11 @@ function parseUiEvent(value: unknown): UiEvent {
         return { id: value.id, type: "card:ready", card: value.card };
       }
       break;
+    case "answer":
+      if (typeof value.text === "string") {
+        return { id: value.id, type: "answer", text: value.text };
+      }
+      break;
     case "error":
       if (
         typeof value.recoverable === "boolean" &&

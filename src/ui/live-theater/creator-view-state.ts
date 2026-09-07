@@ -11,6 +11,7 @@ export type CreatorViewState = {
   synthesisNote?: string;
   imageUrls: string[];
   card?: TrendCard;
+  answerText?: string;
   warnings: string[];
   fatalError?: string;
   seenEventIds: string[];
@@ -56,7 +57,10 @@ export function reduceCreatorViewState(
       return {
         ...state,
         streamStatus: "active",
-        stage: "synthesizing",
+        stage:
+          state.stage === "image-ready" || state.stage === "card-ready"
+            ? state.stage
+            : "synthesizing",
         synthesisNote: event.note,
         seenEventIds,
       };
@@ -74,6 +78,13 @@ export function reduceCreatorViewState(
         streamStatus: "active",
         stage: "card-ready",
         card: event.card,
+        seenEventIds,
+      };
+    case "answer":
+      return {
+        ...state,
+        streamStatus: "active",
+        answerText: event.text,
         seenEventIds,
       };
     case "error":

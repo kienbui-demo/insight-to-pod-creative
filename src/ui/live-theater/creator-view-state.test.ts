@@ -61,6 +61,12 @@ const CARD_READY_EVENT = {
   card: TREND_CARD,
 } satisfies UiEvent;
 
+const ANSWER_EVENT = {
+  id: "event-answer",
+  type: "answer",
+  text: "Design **ready**. [Open image](https://tos.example/design.png)",
+} satisfies UiEvent;
+
 const RECOVERABLE_ERROR_EVENT = {
   id: "event-5",
   type: "error",
@@ -128,12 +134,26 @@ describe("reduceCreatorViewState", () => {
     const state: CreatorViewState = reduceEvents([
       SCANNING_EVENT,
       SYNTHESIZING_EVENT,
+      ANSWER_EVENT,
       DONE_EVENT,
     ]);
 
     expect(state.streamStatus).toBe("done");
     expect(state.stage).toBe("synthesizing");
     expect(state.synthesisNote).toBe("Comparing demand and competition");
+    expect(state.answerText).toBe(ANSWER_EVENT.text);
+  });
+
+  it("stores an answer without changing stage and deduplicates it by id", () => {
+    const cardState = reduceEvents([CARD_READY_EVENT]);
+    const answeredState = reduceCreatorViewState(cardState, ANSWER_EVENT);
+    const replayedState = reduceCreatorViewState(answeredState, ANSWER_EVENT);
+
+    expect(answeredState.streamStatus).toBe("active");
+    expect(answeredState.stage).toBe("card-ready");
+    expect(answeredState.answerText).toBe(ANSWER_EVENT.text);
+    expect(answeredState.seenEventIds).toEqual(["event-4", "event-answer"]);
+    expect(replayedState).toBe(answeredState);
   });
 
   it("produces the expected accumulated state for the ordered happy-path stream", () => {
@@ -142,6 +162,7 @@ describe("reduceCreatorViewState", () => {
       SYNTHESIZING_EVENT,
       IMAGE_READY_EVENT,
       CARD_READY_EVENT,
+      ANSWER_EVENT,
       DONE_EVENT,
     ]);
     const expected: CreatorViewState = {
@@ -151,8 +172,16 @@ describe("reduceCreatorViewState", () => {
       synthesisNote: "Comparing demand and competition",
       imageUrls: ["https://tos.example/generated.png"],
       card: TREND_CARD,
+      answerText: ANSWER_EVENT.text,
       warnings: [],
-      seenEventIds: ["event-1", "event-2", "event-3", "event-4", "event-7"],
+      seenEventIds: [
+        "event-1",
+        "event-2",
+        "event-3",
+        "event-4",
+        "event-answer",
+        "event-7",
+      ],
     };
 
     expect(state).toEqual(expected);

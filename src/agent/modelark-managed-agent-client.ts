@@ -85,6 +85,35 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
+type DirectlyDecodableManagedAgentEvent =
+  | {
+      id: string;
+      type: Exclude<
+        ManagedAgentEvent["type"],
+        "span.model_request_start"
+      >;
+    }
+  | {
+      id: string;
+      type: "span.model_request_start";
+      model: string;
+    };
+
+function joinTextContent(value: unknown): string | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const text: string[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || item.type !== "text" || !isString(item.text)) {
+      return null;
+    }
+    text.push(item.text);
+  }
+  return text.join("");
+}
+
 function isCrawlSource(value: unknown): boolean {
   return (
     value === "google_trends" ||
@@ -102,7 +131,19 @@ function isGenerateDesignInput(value: unknown): value is GenerateDesignImageInpu
     isRecord(value) &&
     isString(value.prompt) &&
     isString(value.size) &&
-    (value.seed === undefined || typeof value.seed === "number")
+    (value.seed === undefined || typeof value.seed === "number") &&
+    (value.reference_image_sources === undefined ||
+      (Array.isArray(value.reference_image_sources) &&
+        value.reference_image_sources.every(
+          (source) =>
+            isRecord(source) &&
+            (source.type === "url" ||
+              source.type === "file" ||
+              source.type === "tos") &&
+            (source.url === undefined || isString(source.url)) &&
+            (source.file_id === undefined || isString(source.file_id)) &&
+            (source.tos_uri === undefined || isString(source.tos_uri)),
+        )))
   );
 }
 
@@ -118,8 +159,14 @@ function isGenerateDesignResult(
 }
 
 export function decodeModelArkManagedAgentEvent(
+  value: DirectlyDecodableManagedAgentEvent,
+): ManagedAgentEvent;
+export function decodeModelArkManagedAgentEvent(
   value: unknown,
-): ManagedAgentEvent {
+): ManagedAgentEvent | null;
+export function decodeModelArkManagedAgentEvent(
+  value: unknown,
+): ManagedAgentEvent | null {
   if (!isRecord(value) || !isString(value.id) || !isString(value.type)) {
     throw new Error("Invalid provisional ModelArk event");
   }
@@ -133,9 +180,26 @@ export function decodeModelArkManagedAgentEvent(
       ) {
         return value as unknown as ManagedAgentEvent;
       }
+      if (
+        value.name === "generate_design_image" &&
+        isGenerateDesignInput(value.input)
+      ) {
+        return value as unknown as ManagedAgentEvent;
+      }
       break;
     case "agent.thinking":
+      if (value.content !== undefined) {
+        if (joinTextContent(value.content) !== null) {
+          return value as unknown as ManagedAgentEvent;
+        }
+        break;
+      }
       if (value.note === undefined || isString(value.note)) {
+        return value as unknown as ManagedAgentEvent;
+      }
+      break;
+    case "agent.message":
+      if (joinTextContent(value.content) !== null) {
         return value as unknown as ManagedAgentEvent;
       }
       break;
@@ -147,6 +211,16 @@ export function decodeModelArkManagedAgentEvent(
         isGenerateDesignResult(value.result)
       ) {
         return value as unknown as ManagedAgentEvent;
+      }
+      if (
+        isString(value.custom_tool_use_id) &&
+        typeof value.is_error === "boolean" &&
+        joinTextContent(value.content) !== null
+      ) {
+        return null;
+      }
+      if (isString(value.custom_tool_use_id)) {
+        return null;
       }
       break;
     case "agent.output":
@@ -175,12 +249,31 @@ export function decodeModelArkManagedAgentEvent(
       ) {
         return value as unknown as ManagedAgentEvent;
       }
+      if (
+        isRecord(value.stop_reason) &&
+        value.stop_reason.type === "requires_action" &&
+        Array.isArray(value.stop_reason.event_ids) &&
+        value.stop_reason.event_ids.every(isString)
+      ) {
+        return value as unknown as ManagedAgentEvent;
+      }
       break;
     case "span.model_request_start":
       if (isString(value.model)) {
         return value as unknown as ManagedAgentEvent;
       }
+      if (value.model === undefined) {
+        return null;
+      }
       break;
+    case "session.status_running":
+    case "session.thread_status_running":
+    case "session.thread_status_idle":
+    case "span.model_request_end":
+    case "user.message":
+    case "agent.tool_use":
+    case "agent.tool_result":
+      return null;
   }
 
   throw new Error("Invalid provisional ModelArk event");
@@ -236,7 +329,10 @@ async function* readManagedAgentSse(
         const value = parseSseData(buffer.slice(0, boundary));
         buffer = buffer.slice(boundary + 2);
         if (value !== undefined) {
-          yield decodeModelArkManagedAgentEvent(value);
+          const event = decodeModelArkManagedAgentEvent(value);
+          if (event !== null) {
+            yield event;
+          }
         }
         boundary = buffer.indexOf("\n\n");
       }
@@ -244,7 +340,10 @@ async function* readManagedAgentSse(
     if (buffer.trim()) {
       const value = parseSseData(buffer);
       if (value !== undefined) {
-        yield decodeModelArkManagedAgentEvent(value);
+        const event = decodeModelArkManagedAgentEvent(value);
+        if (event !== null) {
+          yield event;
+        }
       }
     }
   } finally {
@@ -309,7 +408,14 @@ class ModelArkManagedAgentSession implements ManagedAgentSessionPort {
           : isRecord(payload) && Array.isArray(payload.items)
             ? payload.items
             : [];
-      return events.map(decodeModelArkManagedAgentEvent);
+      const decoded: ManagedAgentEvent[] = [];
+      for (const event of events) {
+        const managedAgentEvent = decodeModelArkManagedAgentEvent(event);
+        if (managedAgentEvent !== null) {
+          decoded.push(managedAgentEvent);
+        }
+      }
+      return decoded;
     });
   }
 
@@ -378,11 +484,21 @@ class ModelArkManagedAgentSession implements ManagedAgentSessionPort {
 
   async submitCustomToolResult(event: ManagedAgentEvent): Promise<void> {
     await this.measured("submit_tool_result", async () => {
+      const wireEvent =
+        event.type === "user.custom_tool_result"
+          ? {
+              id: event.id,
+              type: event.type,
+              custom_tool_use_id: event.custom_tool_use_id,
+              content: [{ type: "text", text: JSON.stringify(event.result) }],
+              is_error: !event.result.ok,
+            }
+          : event;
       await expectOk(
         await this.fetchPort(sessionUrl(this.baseUrl, this.sessionId, "/events"), {
           method: "POST",
           headers: jsonHeaders(this.apiKey),
-          body: JSON.stringify({ events: [event] }),
+          body: JSON.stringify({ events: [wireEvent] }),
         }),
       );
     });

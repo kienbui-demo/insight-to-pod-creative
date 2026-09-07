@@ -16,7 +16,8 @@ describe("SSE encoder", () => {
     { id: "2", type: "synthesizing", note: "Comparing signals" },
     { id: "3", type: "image:ready", url: "https://tos/image.png" },
     { id: "4", type: "card:ready", card: RECORDED_TREND_CARD },
-    { id: "5", type: "error", recoverable: true, message: "Retrying" },
+    { id: "5", type: "answer", text: "Design is ready" },
+    { id: "6", type: "error", recoverable: true, message: "Retrying" },
     { id: "run-1:done", type: "done" },
   ])("encodes the full $type UiEvent as one exact SSE frame", (event) => {
     expect(encode(event)).toBe(

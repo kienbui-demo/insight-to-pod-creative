@@ -77,5 +77,6 @@ export type {
   RunSessionMapping,
   RunSessionRepository,
 } from "./run-session";
+export type { SellerProject } from "./seller-project";
 export type { TrendCard } from "./trend-card";
 export type { UiEvent } from "./ui-event";

@@ -1,15 +1,45 @@
-import type { CrawlSource, TrendCard } from "../../packages/contracts";
+import type {
+  CanonicalRecord,
+  CrawlSource,
+  TrendCard,
+} from "../../packages/contracts";
 import type { BffRequest } from "../bff/types";
+
+export type ReferenceImageSource = {
+  type: "url" | "file" | "tos";
+  url?: string;
+  file_id?: string;
+  tos_uri?: string;
+};
 
 export type GenerateDesignImageInput = {
   prompt: string;
   size: string;
   seed?: number;
+  reference_image_sources?: readonly ReferenceImageSource[];
 };
 
 export type GenerateDesignImageResult =
   | { ok: true; url: string }
   | { ok: false; recoverable: boolean; message: string };
+
+export type CrawlPortInput = {
+  source: CrawlSource;
+  market: string;
+  seed: string;
+  productType?: string;
+  window?: { from: string; to: string };
+  limit?: number;
+};
+
+export type CrawlPortResult =
+  | { ok: true; records: readonly CanonicalRecord[] }
+  | { ok: false; recoverable: boolean; message: string };
+
+export type ManagedAgentTextContent = {
+  type: "text";
+  text: string;
+};
 
 export type ManagedAgentEvent =
   | {
@@ -18,7 +48,31 @@ export type ManagedAgentEvent =
       name: "crawl";
       input: { source: CrawlSource };
     }
-  | { id: string; type: "agent.thinking"; note?: string }
+  | {
+      id: string;
+      type: "agent.custom_tool_use";
+      name: "generate_design_image";
+      input: GenerateDesignImageInput;
+    }
+  | {
+      id: string;
+      type: "agent.thinking";
+      content?: readonly ManagedAgentTextContent[];
+      note?: string;
+    }
+  | {
+      id: string;
+      type: "agent.message";
+      content: readonly ManagedAgentTextContent[];
+    }
+  | {
+      id: string;
+      type: "user.custom_tool_result";
+      custom_tool_use_id: string;
+      name: "crawl";
+      input: { source: CrawlSource };
+      result: CrawlPortResult;
+    }
   | {
       id: string;
       type: "user.custom_tool_result";
@@ -44,7 +98,9 @@ export type ManagedAgentEvent =
   | {
       id: string;
       type: "session.status_idle";
-      stop_reason: { type: "end_turn" };
+      stop_reason:
+        | { type: "end_turn" }
+        | { type: "requires_action"; event_ids: readonly string[] };
     }
   | { id: string; type: "span.model_request_start"; model: string };
 
@@ -58,6 +114,13 @@ export interface ManagedAgentSessionPort {
 
 export interface ManagedAgentClientPort {
   attachOrCreate(runId: string): Promise<ManagedAgentSessionPort>;
+}
+
+export interface CrawlPort {
+  fetch(
+    input: CrawlPortInput,
+    signal?: AbortSignal,
+  ): Promise<CrawlPortResult>;
 }
 
 export interface SeedreamImagePort {

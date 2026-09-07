@@ -1,38 +1,20 @@
 "use client";
 
-import { useMemo } from "react";
-
+import type { TrendCard } from "../../../packages/contracts";
 import { AppShell } from "../components/app-shell";
 import { Badge } from "../components/ui-primitives";
-import { LiveTheater } from "../live-theater/live-theater";
-import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
-import { TREND_CARDS } from "../mocks/trend-cards";
 import { TrendCardGrid } from "../trends/trend-card-grid";
+import { SeedAuthoringPanel } from "./seed-authoring-panel";
 
 const suggestions = ["Halloween", "Christmas", "Winter gifting", "US", "DE"];
 
-export function DiscoverScreen() {
-  const eventSource = useMemo(
-    () =>
-      createSseUiEventSource({
-        url: "/api/live",
-        runId: crypto.randomUUID(),
-        request: {
-          kind: "trend-card",
-          crawl: {
-            source: "google_trends",
-            market: "US",
-            seed: TREND_CARDS[0].seed,
-            productType: TREND_CARDS[0].productType,
-            mode: "live",
-          },
-        },
-        fetch: globalThis.fetch.bind(globalThis),
-        maxReconnects: 1,
-      }),
-    [],
-  );
-
+export function DiscoverScreen({
+  cards,
+  source,
+}: {
+  cards: readonly TrendCard[];
+  source: "live" | "empty";
+}) {
   return (
     <AppShell>
       <section className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-start">
@@ -55,7 +37,7 @@ export function DiscoverScreen() {
             ))}
           </div>
         </div>
-        <LiveTheater eventSource={eventSource} />
+        <SeedAuthoringPanel />
       </section>
 
       <section className="mt-14">
@@ -68,9 +50,19 @@ export function DiscoverScreen() {
               Trend Cards
             </h2>
           </div>
-          <p className="text-sm text-slate-500">Mock warehouse snapshot</p>
+          <p className="text-sm text-slate-500">
+            {source === "live"
+              ? "Live warehouse"
+              : "Warehouse not configured"}
+          </p>
         </div>
-        <TrendCardGrid cards={TREND_CARDS} />
+        {cards.length === 0 ? (
+          <p className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">
+            No trend cards yet — run an ingestion job or a live scan.
+          </p>
+        ) : (
+          <TrendCardGrid cards={cards} />
+        )}
       </section>
     </AppShell>
   );
