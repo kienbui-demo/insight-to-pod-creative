@@ -28,3 +28,14 @@ record-*.json
 
 # API contract reference docs (local only)
 /references/
+
+# --- Codex/Mira scratch & diagnostics (never commit) ---
+.codex-*
+brief-*.md
+approve-*.txt
+diag-*.mts
+edit_*.py
+edit-*.sh
+dedup_*.py
+backfill_*.mjs
+verify_*.mjs
