@@ -245,6 +245,34 @@ export function DesignStudioScreen({
             </div>
           )}
 
+          {started ? (
+            <div
+              aria-label="Design result"
+              className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5"
+            >
+              {designAssetUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  alt="Generated design"
+                  className="aspect-square w-full rounded-2xl object-cover"
+                  src={`/api/design-image?src=${encodeURIComponent(designAssetUrl)}`}
+                />
+              ) : (
+                <div role="status">
+                  <p className="text-sm font-medium text-slate-700">
+                    {"Đang tạo ảnh thiết kế ..."}
+                  </p>
+                  <div
+                    aria-hidden="true"
+                    className="mt-3 h-2 overflow-hidden rounded-full bg-indigo-100"
+                  >
+                    <div className="h-full w-2/3 animate-pulse rounded-full bg-indigo-600" />
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
+
           <div className="mt-5 border-t border-slate-200 pt-5">
             <button
               className={`${primaryActionClass} disabled:cursor-not-allowed disabled:opacity-50`}

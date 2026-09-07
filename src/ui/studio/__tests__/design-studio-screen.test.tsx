@@ -307,4 +307,64 @@ describe("DesignStudioScreen", () => {
       screen.getByRole("button", { name: "Generate design" }),
     ).not.toThrow();
   });
+
+  it("shows the generation loading bar while a run is in flight before the image arrives", async () => {
+    const fetchSpy = vi.fn<typeof fetch>(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate design" }));
+
+    expect(
+      await screen.findByText("Đang tạo ảnh thiết kế ..."),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the generated image through the /api/design-image proxy once ready", async () => {
+    const designAssetUrl =
+      "https://ark-acg-ap-southeast-1.tos-ap-southeast-1.volces.com/gen.png";
+    const fetchSpy = vi.fn<typeof fetch>(async () =>
+      Promise.resolve(
+        new Response(
+          [
+            `data: ${JSON.stringify({
+              id: "image-ready",
+              type: "image:ready",
+              url: designAssetUrl,
+            })}`,
+            `data: ${JSON.stringify({ id: "done", type: "done" })}`,
+            "",
+          ].join("\n\n"),
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate design" }));
+
+    const result = await screen.findByLabelText("Design result");
+    const image = await within(result).findByRole("img");
+    const src = image.getAttribute("src") ?? "";
+    expect(src.startsWith("/api/design-image?src=")).toBe(true);
+    expect(new URL(src, "http://localhost").searchParams.get("src")).toBe(
+      designAssetUrl,
+    );
+  });
 });
