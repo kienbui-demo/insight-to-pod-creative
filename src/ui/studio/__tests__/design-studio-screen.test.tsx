@@ -369,6 +369,68 @@ describe("DesignStudioScreen", () => {
     );
   });
 
+  it("records the design and stops streaming when the image arrives via the answer text", async () => {
+    const designAssetUrl =
+      "https://ark-acg-ap-southeast-1.tos-ap-southeast-1.volces.com/x.jpeg";
+    const appendSpy = vi.fn<StudioHistoryStore["append"]>();
+    const saveRunSpy = vi.fn<NonNullable<StudioHistoryStore["saveRun"]>>();
+    const store: StudioHistoryStore = {
+      load: () => [],
+      append: appendSpy,
+      loadRuns: () => [],
+      saveRun: saveRunSpy,
+    };
+    const fetchSpy = vi.fn<typeof fetch>(async () =>
+      Promise.resolve(
+        new Response(
+          [
+            `data: ${JSON.stringify({
+              id: "answer-with-image",
+              type: "answer",
+              text: `Finished design: ![draft](${designAssetUrl})`,
+            })}`,
+            `data: ${JSON.stringify({ id: "done", type: "done" })}`,
+            "",
+          ].join("\n\n"),
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} historyStore={store} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate design" }));
+
+    await waitFor(() =>
+      expect(appendSpy).toHaveBeenCalledWith(
+        CARD.id,
+        expect.objectContaining({ designAssetUrl }),
+      ),
+    );
+    expect(saveRunSpy).toHaveBeenCalledWith(
+      CARD.id,
+      expect.objectContaining({
+        status: "done",
+        designAssetUrl,
+      }),
+    );
+    expect(
+      screen.queryByText("Đang tạo ảnh thiết kế ..."),
+    ).not.toBeInTheDocument();
+
+    const result = screen.getByLabelText("Design result");
+    const image = within(result).getByRole("img");
+    const src = image.getAttribute("src") ?? "";
+    expect(src.startsWith("/api/design-image?src=")).toBe(true);
+    expect(new URL(src, "http://localhost").searchParams.get("src")).toBe(
+      designAssetUrl,
+    );
+  });
+
   it("auto-resumes an in-flight run on mount without minting a new runId", async () => {
     const runs = [
       {
@@ -410,7 +472,7 @@ describe("DesignStudioScreen", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("resumes a completed run and shows its result without re-fetching", async () => {
+  it("shows the fresh Generate screen for a completed run and reopens it from task history", async () => {
     const designAssetUrl =
       "https://ark-acg-ap-southeast-1.tos-ap-southeast-1.volces.com/gen.png";
     const store: StudioHistoryStore = {
@@ -431,7 +493,15 @@ describe("DesignStudioScreen", () => {
 
     render(<DesignStudioScreen card={CARD} historyStore={store} />);
 
-    const result = await screen.findByLabelText("Design result");
+    expect(
+      screen.getByRole("heading", { name: "Generate your first draft" }),
+    ).toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const history = screen.getByLabelText("Task history");
+    fireEvent.click(within(history).getByRole("button", { name: /run-done-1/ }));
+
+    const result = screen.getByLabelText("Design result");
     const image = within(result).getByRole("img");
     const src = image.getAttribute("src") ?? "";
     expect(src.startsWith("/api/design-image?src=")).toBe(true);
@@ -439,6 +509,54 @@ describe("DesignStudioScreen", () => {
       designAssetUrl,
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("on reload, a completed-only run shows the fresh Generate screen and mints a fresh runId", async () => {
+    const restoredRunId = "run-done-restored";
+    const designAssetUrl =
+      "https://ark-acg-ap-southeast-1.tos-ap-southeast-1.volces.com/restored.png";
+    const store: StudioHistoryStore = {
+      load: () => [],
+      append: () => undefined,
+      loadRunId: () => restoredRunId,
+      loadRuns: () => [
+        {
+          runId: restoredRunId,
+          status: "done",
+          startedAt: "2026-09-07T03:00:00.000Z",
+          designAssetUrl,
+        },
+      ],
+      saveRun: () => undefined,
+    };
+    const fetchSpy = vi.fn<typeof fetch>(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} historyStore={store} />);
+
+    expect(
+      screen.getByRole("heading", { name: "Generate your first draft" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Đang tạo ảnh thiết kế ..."),
+    ).not.toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate design" }));
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body)).runId).not.toBe(restoredRunId);
   });
 
   it("renders a task-history list and reopens a run on click", async () => {

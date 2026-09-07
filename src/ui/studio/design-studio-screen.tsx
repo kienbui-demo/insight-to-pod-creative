@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { TrendCard } from "../../../packages/contracts";
+import type { TrendCard, UiEvent } from "../../../packages/contracts";
 import { AppShell } from "../components/app-shell";
 import { Badge, Panel, primaryActionClass } from "../components/ui-primitives";
 import { formatOpportunityScore } from "../formatters";
+import { extractAnswerImageUrls } from "../live-theater/answer-images";
+import type { UiEventSource } from "../live-theater/event-source";
 import { LiveTheater } from "../live-theater/live-theater";
 import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
 import {
@@ -37,6 +39,20 @@ function upsertRun(runs: PersistedRun[], run: PersistedRun): PersistedRun[] {
   return nextRuns;
 }
 
+function observeUiEventSource(
+  source: UiEventSource,
+  observer: (event: UiEvent) => void,
+): UiEventSource {
+  return {
+    async *events(): AsyncIterable<UiEvent> {
+      for await (const event of source.events()) {
+        observer(event);
+        yield event;
+      }
+    },
+  };
+}
+
 export function DesignStudioScreen({
   card,
   historyStore = createSessionStorageStudioStore(),
@@ -53,6 +69,8 @@ export function DesignStudioScreen({
   const [designAssetUrl, setDesignAssetUrl] = useState<string>();
   const [designHistory, setDesignHistory] = useState<PersistedDesign[]>([]);
   const [taskHistory, setTaskHistory] = useState<PersistedRun[]>([]);
+  const recordedImageRunIds = useRef(new Set<string>());
+  const reportedImageUrls = useRef(new Set<string>());
   const [publishState, setPublishState] = useState<
     "idle" | "publishing" | "published" | "error"
   >("idle");
@@ -66,10 +84,9 @@ export function DesignStudioScreen({
     setDesignHistory(restored);
     if (typeof historyStore.loadRuns === "function") {
       const restoredRuns = historyStore.loadRuns(card.id);
-      const runToResume =
-        mostRecentRun(
-          restoredRuns.filter((run) => run.status === "in-flight"),
-        ) ?? mostRecentRun(restoredRuns);
+      const runToResume = mostRecentRun(
+        restoredRuns.filter((run) => run.status === "in-flight"),
+      );
 
       setTaskHistory(restoredRuns);
       if (runToResume) {
@@ -99,7 +116,7 @@ export function DesignStudioScreen({
 
     const trimmedPrompt = sellerPrompt.trim();
 
-    return createSseUiEventSource({
+    const source = createSseUiEventSource({
       url: "/api/live",
       runId,
       request: {
@@ -118,7 +135,47 @@ export function DesignStudioScreen({
       fetch: globalThis.fetch.bind(globalThis),
       maxReconnects: 1,
     });
-  }, [card, runId, sellerPrompt, streaming]);
+
+    let observedImageUrl: string | undefined;
+
+    return observeUiEventSource(source, (event) => {
+      if (observedImageUrl === undefined) {
+        const imageUrl =
+          event.type === "image:ready"
+            ? event.url
+            : event.type === "answer"
+              ? extractAnswerImageUrls(event.text)[0]
+              : undefined;
+
+        if (imageUrl !== undefined) {
+          observedImageUrl = imageUrl;
+          recordDesign(imageUrl);
+        }
+      }
+
+      if (
+        event.type === "done" ||
+        (event.type === "error" && !event.recoverable)
+      ) {
+        globalThis.setTimeout(() => {
+          setStreaming(false);
+
+          if (observedImageUrl === undefined) {
+            const completedAt = new Date().toISOString();
+            const completedRun = {
+              runId,
+              status: event.type === "error" ? "error" : "done",
+              startedAt: runStartedAt ?? completedAt,
+            } satisfies PersistedRun;
+
+            historyStore.saveRun?.(card.id, completedRun);
+            setTaskHistory((current) => upsertRun(current, completedRun));
+          }
+        }, 0);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the adapter must stay stable for the active run
+  }, [card, runId, runStartedAt, sellerPrompt, streaming]);
 
   function startRun(): void {
     let nextRunId = runId;
@@ -145,6 +202,16 @@ export function DesignStudioScreen({
   }
 
   function recordDesign(url: string): void {
+    const reportedImageKey = `${runId}\n${url}`;
+    if (
+      recordedImageRunIds.current.has(runId) ||
+      reportedImageUrls.current.has(reportedImageKey)
+    ) {
+      return;
+    }
+    recordedImageRunIds.current.add(runId);
+    reportedImageUrls.current.add(reportedImageKey);
+
     const completedAt = new Date().toISOString();
     const design = {
       runId,
