@@ -1,9 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TrendCard } from "../../../../packages/contracts";
 import { DesignStudioScreen } from "../design-studio-screen";
-import type { PersistedDesign, StudioHistoryStore } from "../studio-persistence";
+import type {
+  PersistedDesign,
+  PersistedRun,
+  StudioHistoryStore,
+} from "../studio-persistence";
 
 const CARD = {
   id: "trend-studio",
@@ -23,6 +27,10 @@ const CARD = {
   freshnessTier: "hot",
   updatedAt: "2026-09-04T01:00:00.000Z",
 } satisfies TrendCard;
+
+beforeEach(() => {
+  window.sessionStorage.clear();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -366,5 +374,149 @@ describe("DesignStudioScreen", () => {
     expect(new URL(src, "http://localhost").searchParams.get("src")).toBe(
       designAssetUrl,
     );
+  });
+
+  it("auto-resumes an in-flight run on mount without minting a new runId", async () => {
+    const runs = [
+      {
+        runId: "run-inflight-1",
+        status: "in-flight",
+        startedAt: "2026-09-07T03:00:00.000Z",
+      },
+    ] satisfies PersistedRun[];
+    const savedRuns: PersistedRun[] = [];
+    const store: StudioHistoryStore = {
+      load: () => [],
+      append: () => undefined,
+      loadRuns: () => runs,
+      saveRun: (_cardId, run) => {
+        savedRuns.push(run);
+      },
+    };
+    const fetchSpy = vi.fn<typeof fetch>(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} historyStore={store} />);
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body)).runId).toBe("run-inflight-1");
+    expect(savedRuns).toEqual([]);
+    expect(
+      screen.queryByRole("heading", { name: "Generate your first draft" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("resumes a completed run and shows its result without re-fetching", async () => {
+    const designAssetUrl =
+      "https://ark-acg-ap-southeast-1.tos-ap-southeast-1.volces.com/gen.png";
+    const store: StudioHistoryStore = {
+      load: () => [],
+      append: () => undefined,
+      loadRuns: () => [
+        {
+          runId: "run-done-1",
+          status: "done",
+          startedAt: "2026-09-07T03:00:00.000Z",
+          designAssetUrl,
+        },
+      ],
+      saveRun: () => undefined,
+    };
+    const fetchSpy = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} historyStore={store} />);
+
+    const result = await screen.findByLabelText("Design result");
+    const image = within(result).getByRole("img");
+    const src = image.getAttribute("src") ?? "";
+    expect(src.startsWith("/api/design-image?src=")).toBe(true);
+    expect(new URL(src, "http://localhost").searchParams.get("src")).toBe(
+      designAssetUrl,
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("renders a task-history list and reopens a run on click", async () => {
+    const doneAssetUrl =
+      "https://ark-acg-ap-southeast-1.tos-ap-southeast-1.volces.com/history.png";
+    const runs = [
+      {
+        runId: "run-done-history",
+        status: "done",
+        startedAt: "2026-09-07T02:00:00.000Z",
+        designAssetUrl: doneAssetUrl,
+      },
+      {
+        runId: "run-inflight-history",
+        status: "in-flight",
+        startedAt: "2026-09-07T03:00:00.000Z",
+      },
+    ] satisfies PersistedRun[];
+    const store: StudioHistoryStore = {
+      load: () => [],
+      append: () => undefined,
+      loadRuns: () => runs,
+      saveRun: () => undefined,
+    };
+    const fetchSpy = vi.fn<typeof fetch>(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} historyStore={store} />);
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const history = screen.getByLabelText("Task history");
+    expect(within(history).getAllByRole("button")).toHaveLength(2);
+
+    fireEvent.click(
+      within(history).getByRole("button", { name: /run-done-history/ }),
+    );
+
+    const result = screen.getByLabelText("Design result");
+    const image = within(result).getByRole("img");
+    const src = image.getAttribute("src") ?? "";
+    expect(new URL(src, "http://localhost").searchParams.get("src")).toBe(
+      doneAssetUrl,
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores auto-resume for a legacy store without loadRuns", () => {
+    const legacyStore: StudioHistoryStore = {
+      load: () => [],
+      append: () => undefined,
+      loadRunId: () => "run-legacy-restored",
+      saveRunId: () => undefined,
+    };
+    const fetchSpy = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} historyStore={legacyStore} />);
+
+    expect(
+      screen.getByRole("heading", { name: "Generate your first draft" }),
+    ).toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

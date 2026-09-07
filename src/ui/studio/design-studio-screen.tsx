@@ -12,8 +12,30 @@ import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
 import {
   createSessionStorageStudioStore,
   type PersistedDesign,
+  type PersistedRun,
   type StudioHistoryStore,
 } from "./studio-persistence";
+
+function mostRecentRun(runs: PersistedRun[]): PersistedRun | undefined {
+  return runs.reduce<PersistedRun | undefined>(
+    (latest, run) =>
+      latest === undefined || run.startedAt > latest.startedAt ? run : latest,
+    undefined,
+  );
+}
+
+function upsertRun(runs: PersistedRun[], run: PersistedRun): PersistedRun[] {
+  const existingIndex = runs.findIndex(
+    (persisted) => persisted.runId === run.runId,
+  );
+  if (existingIndex === -1) {
+    return [...runs, run];
+  }
+
+  const nextRuns = [...runs];
+  nextRuns[existingIndex] = run;
+  return nextRuns;
+}
 
 export function DesignStudioScreen({
   card,
@@ -23,11 +45,14 @@ export function DesignStudioScreen({
   historyStore?: StudioHistoryStore;
 }) {
   const [started, setStarted] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [sellerPrompt, setSellerPrompt] = useState("");
   const [runId, setRunId] = useState(() => crypto.randomUUID());
   const [runIdIsFresh, setRunIdIsFresh] = useState(true);
+  const [runStartedAt, setRunStartedAt] = useState<string>();
   const [designAssetUrl, setDesignAssetUrl] = useState<string>();
   const [designHistory, setDesignHistory] = useState<PersistedDesign[]>([]);
+  const [taskHistory, setTaskHistory] = useState<PersistedRun[]>([]);
   const [publishState, setPublishState] = useState<
     "idle" | "publishing" | "published" | "error"
   >("idle");
@@ -39,6 +64,25 @@ export function DesignStudioScreen({
     const restoredRunId = historyStore.loadRunId?.(card.id) ?? restored[0]?.runId;
 
     setDesignHistory(restored);
+    if (typeof historyStore.loadRuns === "function") {
+      const restoredRuns = historyStore.loadRuns(card.id);
+      const runToResume =
+        mostRecentRun(
+          restoredRuns.filter((run) => run.status === "in-flight"),
+        ) ?? mostRecentRun(restoredRuns);
+
+      setTaskHistory(restoredRuns);
+      if (runToResume) {
+        setRunId(runToResume.runId);
+        setRunIdIsFresh(false);
+        setRunStartedAt(runToResume.startedAt);
+        setDesignAssetUrl(runToResume.designAssetUrl);
+        setStarted(true);
+        setStreaming(runToResume.status === "in-flight");
+        return;
+      }
+    }
+
     if (restoredRunId) {
       setRunId(restoredRunId);
       setRunIdIsFresh(false);
@@ -49,7 +93,7 @@ export function DesignStudioScreen({
   }, [card.id]);
 
   const eventSource = useMemo(() => {
-    if (!started) {
+    if (!streaming) {
       return undefined;
     }
 
@@ -74,32 +118,64 @@ export function DesignStudioScreen({
       fetch: globalThis.fetch.bind(globalThis),
       maxReconnects: 1,
     });
-  }, [card, runId, sellerPrompt, started]);
+  }, [card, runId, sellerPrompt, streaming]);
 
   function startRun(): void {
+    let nextRunId = runId;
     if (!runIdIsFresh) {
-      const nextRunId = crypto.randomUUID();
+      nextRunId = crypto.randomUUID();
       setRunId(nextRunId);
       setRunIdIsFresh(true);
       historyStore.saveRunId?.(card.id, nextRunId);
     }
+
+    const startedAt = new Date().toISOString();
+    const run = {
+      runId: nextRunId,
+      status: "in-flight",
+      startedAt,
+    } satisfies PersistedRun;
+
+    setRunStartedAt(startedAt);
+    setDesignAssetUrl(undefined);
+    historyStore.saveRun?.(card.id, run);
+    setTaskHistory((current) => upsertRun(current, run));
     setStarted(true);
+    setStreaming(true);
   }
 
   function recordDesign(url: string): void {
+    const completedAt = new Date().toISOString();
     const design = {
       runId,
       designAssetUrl: url,
-      createdAt: new Date().toISOString(),
+      createdAt: completedAt,
     } satisfies PersistedDesign;
+    const completedRun = {
+      runId,
+      status: "done",
+      startedAt: runStartedAt ?? completedAt,
+      designAssetUrl: url,
+    } satisfies PersistedRun;
 
     setDesignAssetUrl(url);
     historyStore.append(card.id, design);
+    historyStore.saveRun?.(card.id, completedRun);
     setDesignHistory((current) =>
       current.some((persisted) => persisted.designAssetUrl === url)
         ? current
         : [...current, design],
     );
+    setTaskHistory((current) => upsertRun(current, completedRun));
+  }
+
+  function reopenRun(run: PersistedRun): void {
+    setRunId(run.runId);
+    setRunIdIsFresh(false);
+    setRunStartedAt(run.startedAt);
+    setDesignAssetUrl(run.designAssetUrl);
+    setStarted(true);
+    setStreaming(run.status === "in-flight");
   }
 
   async function publishDesign(): Promise<void> {
@@ -218,15 +294,45 @@ export function DesignStudioScreen({
               Leave blank to let the agent draft it from the concept above.
             </p>
           </Panel>
+
+          {typeof historyStore.loadRuns === "function" &&
+          taskHistory.length > 0 ? (
+            <Panel aria-label="Task history" className="p-6">
+              <h2 className="text-xl font-semibold text-slate-950">
+                Task history
+              </h2>
+              <div className="mt-5 space-y-3">
+                {[...taskHistory]
+                  .sort((left, right) =>
+                    right.startedAt.localeCompare(left.startedAt),
+                  )
+                  .map((run) => (
+                    <button
+                      className="w-full rounded-2xl border border-slate-200 p-4 text-left transition hover:border-indigo-300 hover:bg-indigo-50"
+                      key={run.runId}
+                      onClick={() => reopenRun(run)}
+                      type="button"
+                    >
+                      <span className="block text-sm font-semibold text-slate-900">
+                        {run.runId}
+                      </span>
+                      <span className="mt-1 block text-sm capitalize text-slate-500">
+                        {run.status}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            </Panel>
+          ) : null}
         </div>
 
         <Panel className="overflow-hidden p-6">
-          {started && eventSource ? (
+          {streaming && eventSource ? (
             <LiveTheater
               eventSource={eventSource}
               onImageReady={recordDesign}
             />
-          ) : (
+          ) : !started ? (
             <div className="flex min-h-72 flex-col items-center justify-center rounded-2xl bg-indigo-50 p-8 text-center">
               <h2 className="text-xl font-semibold text-slate-950">
                 Generate your first draft
@@ -243,7 +349,7 @@ export function DesignStudioScreen({
                 Generate design
               </button>
             </div>
-          )}
+          ) : null}
 
           {started ? (
             <div
@@ -257,7 +363,7 @@ export function DesignStudioScreen({
                   className="aspect-square w-full rounded-2xl object-cover"
                   src={`/api/design-image?src=${encodeURIComponent(designAssetUrl)}`}
                 />
-              ) : (
+              ) : streaming ? (
                 <div role="status">
                   <p className="text-sm font-medium text-slate-700">
                     {"Đang tạo ảnh thiết kế ..."}
@@ -269,6 +375,10 @@ export function DesignStudioScreen({
                     <div className="h-full w-2/3 animate-pulse rounded-full bg-indigo-600" />
                   </div>
                 </div>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  No design image is available for this run.
+                </p>
               )}
             </div>
           ) : null}

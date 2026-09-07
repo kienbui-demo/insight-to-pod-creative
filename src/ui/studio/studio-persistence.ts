@@ -4,11 +4,22 @@ export type PersistedDesign = {
   createdAt: string;
 };
 
+export type StudioRunStatus = "in-flight" | "done" | "error";
+
+export type PersistedRun = {
+  runId: string;
+  status: StudioRunStatus;
+  startedAt: string;
+  designAssetUrl?: string;
+};
+
 export interface StudioHistoryStore {
   load(cardId: string): PersistedDesign[];
   append(cardId: string, design: PersistedDesign): void;
   loadRunId?(cardId: string): string | undefined;
   saveRunId?(cardId: string, runId: string): void;
+  loadRuns?(cardId: string): PersistedRun[];
+  saveRun?(cardId: string, run: PersistedRun): void;
 }
 
 type StoragePort = Pick<Storage, "getItem" | "setItem">;
@@ -27,6 +38,19 @@ function isPersistedDesign(value: unknown): value is PersistedDesign {
     isNonEmptyString(value.runId) &&
     isNonEmptyString(value.designAssetUrl) &&
     isNonEmptyString(value.createdAt)
+  );
+}
+
+function isPersistedRun(value: unknown): value is PersistedRun {
+  return (
+    isRecord(value) &&
+    isNonEmptyString(value.runId) &&
+    (value.status === "in-flight" ||
+      value.status === "done" ||
+      value.status === "error") &&
+    isNonEmptyString(value.startedAt) &&
+    (value.designAssetUrl === undefined ||
+      isNonEmptyString(value.designAssetUrl))
   );
 }
 
@@ -66,6 +90,10 @@ function runIdStorageKey(cardId: string): string {
   return `studio-runid:${cardId}`;
 }
 
+function runsStorageKey(cardId: string): string {
+  return `studio-runs:${cardId}`;
+}
+
 export function createSessionStorageStudioStore(
   storage?: StoragePort,
 ): StudioHistoryStore {
@@ -82,6 +110,20 @@ export function createSessionStorageStudioStore(
       return Array.isArray(parsed) && parsed.every(isPersistedDesign)
         ? parsed
         : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function loadRuns(cardId: string): PersistedRun[] {
+    try {
+      const serialized = resolvedStorage.getItem(runsStorageKey(cardId));
+      if (serialized === null) {
+        return [];
+      }
+
+      const parsed: unknown = JSON.parse(serialized);
+      return Array.isArray(parsed) && parsed.every(isPersistedRun) ? parsed : [];
     } catch {
       return [];
     }
@@ -119,6 +161,26 @@ export function createSessionStorageStudioStore(
     saveRunId(cardId, runId) {
       try {
         resolvedStorage.setItem(runIdStorageKey(cardId), runId);
+      } catch {
+        // Persistence is best-effort when browser storage is unavailable.
+      }
+    },
+    loadRuns,
+    saveRun(cardId, run) {
+      const runs = loadRuns(cardId);
+      const existingIndex = runs.findIndex(
+        (persisted) => persisted.runId === run.runId,
+      );
+      const nextRuns = [...runs];
+
+      if (existingIndex === -1) {
+        nextRuns.push(run);
+      } else {
+        nextRuns[existingIndex] = run;
+      }
+
+      try {
+        resolvedStorage.setItem(runsStorageKey(cardId), JSON.stringify(nextRuns));
       } catch {
         // Persistence is best-effort when browser storage is unavailable.
       }
