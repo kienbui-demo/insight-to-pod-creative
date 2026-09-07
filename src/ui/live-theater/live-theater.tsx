@@ -7,6 +7,7 @@ import {
   createInitialCreatorViewState,
   reduceCreatorViewState,
 } from "./creator-view-state";
+import { extractAnswerImageUrls } from "./answer-images";
 import type { UiEventSource } from "./event-source";
 
 type LiveTheaterProps = {
@@ -45,6 +46,9 @@ export function LiveTheater({
 
   const latestSource = state.scannedSources.at(-1);
   const latestImage = state.imageUrls.at(-1);
+  const answerImageUrls = extractAnswerImageUrls(state.answerText).filter(
+    (url) => !state.imageUrls.includes(url),
+  );
 
   useEffect(() => {
     if (
@@ -106,6 +110,20 @@ export function LiveTheater({
         <p className="mt-5 whitespace-pre-wrap text-sm text-slate-700">
           {state.answerText}
         </p>
+      ) : null}
+
+      {answerImageUrls.length > 0 ? (
+        <div className="mt-4 space-y-4">
+          {answerImageUrls.map((url) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              alt="Generated design"
+              className="aspect-video w-full rounded-2xl object-cover"
+              key={url}
+              src={url}
+            />
+          ))}
+        </div>
       ) : null}
 
       {state.warnings.map((warning) => (

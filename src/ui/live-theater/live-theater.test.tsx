@@ -188,4 +188,22 @@ describe("LiveTheater", () => {
       "https://tos.example/generated-v2.png",
     );
   });
+
+  it("renders an image embedded in answer prose as an img", async () => {
+    const eventSource = new FakeUiEventSource();
+
+    render(<LiveTheater eventSource={eventSource} />);
+
+    await act(async () => {
+      eventSource.emit({
+        id: "answer-with-image",
+        type: "answer",
+        text: "Your design is ready: ![result](https://tos.example/from-answer.png)",
+      } satisfies UiEvent);
+    });
+
+    expect(
+      await screen.findByRole("img", { name: "Generated design" }),
+    ).toHaveAttribute("src", "https://tos.example/from-answer.png");
+  });
 });
