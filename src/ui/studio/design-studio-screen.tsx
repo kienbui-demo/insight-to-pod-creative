@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { TrendCard } from "../../../packages/contracts";
 import { AppShell } from "../components/app-shell";
@@ -9,16 +9,42 @@ import { Badge, Panel, primaryActionClass } from "../components/ui-primitives";
 import { formatOpportunityScore } from "../formatters";
 import { LiveTheater } from "../live-theater/live-theater";
 import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
+import {
+  createSessionStorageStudioStore,
+  type PersistedDesign,
+  type StudioHistoryStore,
+} from "./studio-persistence";
 
-export function DesignStudioScreen({ card }: { card: TrendCard }) {
+export function DesignStudioScreen({
+  card,
+  historyStore = createSessionStorageStudioStore(),
+}: {
+  card: TrendCard;
+  historyStore?: StudioHistoryStore;
+}) {
   const [started, setStarted] = useState(false);
-  const [runId] = useState(() => crypto.randomUUID());
-  const [idempotencyKey] = useState(() => `publish-${runId}`);
+  const [runId, setRunId] = useState(() => crypto.randomUUID());
   const [designAssetUrl, setDesignAssetUrl] = useState<string>();
+  const [designHistory, setDesignHistory] = useState<PersistedDesign[]>([]);
   const [publishState, setPublishState] = useState<
     "idle" | "publishing" | "published" | "error"
   >("idle");
   const [publishedUrl, setPublishedUrl] = useState<string>();
+  const idempotencyKey = `publish-${runId}`;
+
+  useEffect(() => {
+    const restored = historyStore.load(card.id);
+    const restoredRunId = historyStore.loadRunId?.(card.id) ?? restored[0]?.runId;
+
+    setDesignHistory(restored);
+    if (restoredRunId) {
+      setRunId(restoredRunId);
+    } else {
+      historyStore.saveRunId?.(card.id, runId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only on mount or card change
+  }, [card.id]);
+
   const eventSource = useMemo(() => {
     if (!started) {
       return undefined;
@@ -41,6 +67,22 @@ export function DesignStudioScreen({ card }: { card: TrendCard }) {
       maxReconnects: 1,
     });
   }, [card, runId, started]);
+
+  function recordDesign(url: string): void {
+    const design = {
+      runId,
+      designAssetUrl: url,
+      createdAt: new Date().toISOString(),
+    } satisfies PersistedDesign;
+
+    setDesignAssetUrl(url);
+    historyStore.append(card.id, design);
+    setDesignHistory((current) =>
+      current.some((persisted) => persisted.designAssetUrl === url)
+        ? current
+        : [...current, design],
+    );
+  }
 
   async function publishDesign(): Promise<void> {
     if (!designAssetUrl || publishState === "publishing") {
@@ -129,7 +171,7 @@ export function DesignStudioScreen({ card }: { card: TrendCard }) {
           {started && eventSource ? (
             <LiveTheater
               eventSource={eventSource}
-              onImageReady={setDesignAssetUrl}
+              onImageReady={recordDesign}
             />
           ) : (
             <div className="flex min-h-72 flex-col items-center justify-center rounded-2xl bg-indigo-50 p-8 text-center">
@@ -185,6 +227,25 @@ export function DesignStudioScreen({ card }: { card: TrendCard }) {
           </div>
         </Panel>
       </div>
+
+      <Panel aria-label="Design history" className="mt-6 p-6">
+        <h2 className="text-xl font-semibold text-slate-950">Previous designs</h2>
+        {designHistory.length > 0 ? (
+          <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {designHistory.map((design) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                alt={`Generated design for ${card.seed}`}
+                className="aspect-square w-full rounded-2xl border border-slate-200 object-cover"
+                key={design.designAssetUrl}
+                src={design.designAssetUrl}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">No designs generated yet.</p>
+        )}
+      </Panel>
     </AppShell>
   );
 }

@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TrendCard } from "../../../../packages/contracts";
 import { DesignStudioScreen } from "../design-studio-screen";
+import type { PersistedDesign, StudioHistoryStore } from "../studio-persistence";
 
 const CARD = {
   id: "trend-studio",
@@ -55,5 +56,34 @@ describe("DesignStudioScreen", () => {
     expect(
       screen.getByRole("button", { name: "Publish to Printerval" }),
     ).toBeDisabled();
+  });
+
+  it("restores previously generated designs from storage on mount", () => {
+    const designs = [
+      {
+        runId: "run-studio",
+        designAssetUrl: "https://tos.example/a.png",
+        createdAt: "2026-09-07T01:00:00.000Z",
+      },
+      {
+        runId: "run-studio",
+        designAssetUrl: "https://tos.example/b.png",
+        createdAt: "2026-09-07T02:00:00.000Z",
+      },
+    ] satisfies PersistedDesign[];
+    const seededStore: StudioHistoryStore = {
+      load: (cardId) => (cardId === CARD.id ? designs : []),
+      append: () => undefined,
+    };
+
+    render(<DesignStudioScreen card={CARD} historyStore={seededStore} />);
+
+    const history = screen.getByLabelText("Design history");
+    const images = within(history).getAllByRole("img");
+    expect(images).toHaveLength(2);
+    expect(images.map((image) => image.getAttribute("src"))).toEqual([
+      "https://tos.example/a.png",
+      "https://tos.example/b.png",
+    ]);
   });
 });
