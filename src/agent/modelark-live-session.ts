@@ -345,6 +345,15 @@ class ModelArkLiveRun implements LiveRun {
           continue;
         }
 
+        if (
+          event.type === "agent.custom_tool_use" &&
+          event.name === "crawl" &&
+          this.servedCard !== undefined
+        ) {
+          // Warehouse-served crawl: data comes from the warehouse, so do not
+          // surface a "scanning" UI event for this crawl tool-use.
+          continue;
+        }
         for (const mapped of mapManagedAgentEvents([event])) {
           this.output.push(mapped);
         }

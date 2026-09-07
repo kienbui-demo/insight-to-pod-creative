@@ -64,10 +64,7 @@ async function fulfillCrawlTool(options: {
   lookup: TrendCardLookupPort;
   crawl?: FakeCrawlPort;
   metricSink?: MetricSink;
-}): Promise<{
-  client: FakeManagedAgentClient;
-  crawl: FakeCrawlPort;
-}> {
+}) {
   const client = new FakeManagedAgentClient();
   const crawl = options.crawl ?? new FakeCrawlPort([LIVE_RESULT]);
   const sessions = createModelArkLiveSessionPort({
@@ -99,9 +96,9 @@ async function fulfillCrawlTool(options: {
     type: "session.status_idle",
     stop_reason: { type: "end_turn" },
   });
-  await collected;
+  const events = await collected;
 
-  return { client, crawl };
+  return { client, crawl, events };
 }
 
 describe("P9 generate-design warehouse-first crawl fulfillment", () => {
@@ -273,5 +270,49 @@ describe("E1 deep-dive warehouse-first crawl fulfillment", () => {
     expect(client.session.submittedToolResults).toEqual([
       expect.objectContaining({ result: LIVE_RESULT }),
     ]);
+  });
+});
+
+describe("S4b warehouse-served crawl suppresses the scanning UI event", () => {
+  it("does not emit a crawl tool_call/scanning event when the warehouse serves the generate-design crawl", async () => {
+    const lookup = new FakeTrendCardLookup({
+      kind: "hit",
+      card: COMPLETE_TREND_CARD,
+    });
+
+    const { events } = await fulfillCrawlTool({
+      request: { kind: "generate-design", crawl: CRAWL },
+      source: "amazon",
+      lookup,
+    });
+
+    expect(events.some((event) => event.type === "tool_call")).toBe(false);
+  });
+
+  it("still emits the crawl scanning event when the generate-design lookup misses", async () => {
+    const lookup = new FakeTrendCardLookup({ kind: "miss" });
+
+    const { events } = await fulfillCrawlTool({
+      request: { kind: "generate-design", crawl: CRAWL },
+      source: "amazon",
+      lookup,
+    });
+
+    expect(events.some((event) => event.type === "tool_call")).toBe(true);
+  });
+
+  it("still emits the crawl scanning event for a trend-card run even when a lookup is provided", async () => {
+    const lookup = new FakeTrendCardLookup({
+      kind: "hit",
+      card: COMPLETE_TREND_CARD,
+    });
+
+    const { events } = await fulfillCrawlTool({
+      request: { kind: "trend-card", crawl: CRAWL },
+      source: "amazon",
+      lookup,
+    });
+
+    expect(events.some((event) => event.type === "tool_call")).toBe(true);
   });
 });
