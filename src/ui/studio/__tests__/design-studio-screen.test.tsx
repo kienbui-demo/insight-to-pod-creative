@@ -151,4 +151,116 @@ describe("DesignStudioScreen", () => {
     const sent = JSON.parse(encoded!);
     expect("sellerPrompt" in sent).toBe(false);
   });
+
+  it("mints a fresh runId when generating after a reload restore", async () => {
+    const RESTORED_RUN_ID = "run-restored-123";
+    const saved: string[] = [];
+    const seededStore: StudioHistoryStore = {
+      load: (cardId) =>
+        cardId === CARD.id
+          ? [
+              {
+                runId: RESTORED_RUN_ID,
+                designAssetUrl: "https://tos.example/a.png",
+                createdAt: "2026-09-07T01:00:00.000Z",
+              },
+            ]
+          : [],
+      append: () => undefined,
+      loadRunId: (cardId) =>
+        cardId === CARD.id ? RESTORED_RUN_ID : undefined,
+      saveRunId: (_cardId, runId) => {
+        saved.push(runId);
+      },
+    };
+    const fetchSpy = vi.fn<typeof fetch>(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} historyStore={seededStore} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate design" }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(init.body));
+    expect(body.runId).not.toBe(RESTORED_RUN_ID);
+    expect(typeof body.runId).toBe("string");
+    expect(body.runId.length).toBeGreaterThan(0);
+    expect(saved).toContain(body.runId);
+  });
+
+  it("reuses the in-session runId when nothing was restored", async () => {
+    const savedIds: string[] = [];
+    const store: StudioHistoryStore = {
+      load: () => [],
+      append: () => undefined,
+      loadRunId: () => undefined,
+      saveRunId: (_cardId, runId) => {
+        savedIds.push(runId);
+      },
+    };
+    const fetchSpy = vi.fn<typeof fetch>(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} historyStore={store} />);
+
+    expect(savedIds).toHaveLength(1);
+    const initialRunId = savedIds[0];
+    fireEvent.click(screen.getByRole("button", { name: "Generate design" }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(init.body));
+    expect(body.runId).toBe(initialRunId);
+  });
+
+  it("on reload, shows draft concept, generation history, and the studio layout", () => {
+    const RESTORED_RUN_ID = "run-restored-123";
+    const seededStore: StudioHistoryStore = {
+      load: (cardId) =>
+        cardId === CARD.id
+          ? [
+              {
+                runId: RESTORED_RUN_ID,
+                designAssetUrl: "https://tos.example/a.png",
+                createdAt: "2026-09-07T01:00:00.000Z",
+              },
+            ]
+          : [],
+      append: () => undefined,
+      loadRunId: (cardId) =>
+        cardId === CARD.id ? RESTORED_RUN_ID : undefined,
+      saveRunId: () => undefined,
+    };
+
+    render(<DesignStudioScreen card={CARD} historyStore={seededStore} />);
+
+    expect(screen.getByLabelText("Draft design concept")).toBeInTheDocument();
+    expect(screen.getByText(CARD.recommendation.action)).toBeInTheDocument();
+    const history = screen.getByLabelText("Design history");
+    expect(within(history).getAllByRole("img")).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "Generate design" }),
+    ).toBeInTheDocument();
+  });
 });

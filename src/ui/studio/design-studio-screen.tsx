@@ -25,6 +25,7 @@ export function DesignStudioScreen({
   const [started, setStarted] = useState(false);
   const [sellerPrompt, setSellerPrompt] = useState("");
   const [runId, setRunId] = useState(() => crypto.randomUUID());
+  const [runIdIsFresh, setRunIdIsFresh] = useState(true);
   const [designAssetUrl, setDesignAssetUrl] = useState<string>();
   const [designHistory, setDesignHistory] = useState<PersistedDesign[]>([]);
   const [publishState, setPublishState] = useState<
@@ -40,6 +41,7 @@ export function DesignStudioScreen({
     setDesignHistory(restored);
     if (restoredRunId) {
       setRunId(restoredRunId);
+      setRunIdIsFresh(false);
     } else {
       historyStore.saveRunId?.(card.id, runId);
     }
@@ -73,6 +75,16 @@ export function DesignStudioScreen({
       maxReconnects: 1,
     });
   }, [card, runId, sellerPrompt, started]);
+
+  function startRun(): void {
+    if (!runIdIsFresh) {
+      const nextRunId = crypto.randomUUID();
+      setRunId(nextRunId);
+      setRunIdIsFresh(true);
+      historyStore.saveRunId?.(card.id, nextRunId);
+    }
+    setStarted(true);
+  }
 
   function recordDesign(url: string): void {
     const design = {
@@ -214,7 +226,7 @@ export function DesignStudioScreen({
               </p>
               <button
                 className={`${primaryActionClass} mt-6`}
-                onClick={() => setStarted(true)}
+                onClick={startRun}
                 type="button"
               >
                 Generate design
