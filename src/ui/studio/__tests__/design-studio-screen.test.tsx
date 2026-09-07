@@ -86,4 +86,69 @@ describe("DesignStudioScreen", () => {
       "https://tos.example/b.png",
     ]);
   });
+
+  it("shows the draft design concept", () => {
+    render(<DesignStudioScreen card={CARD} />);
+
+    expect(screen.getByText(CARD.recommendation.action)).toBeInTheDocument();
+    expect(screen.getByLabelText("Draft design concept")).toBeInTheDocument();
+  });
+
+  it("sends the seller prompt when provided", async () => {
+    const fetchSpy = vi.fn<typeof fetch>(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} />);
+
+    fireEvent.change(screen.getByLabelText("Your prompt"), {
+      target: { value: "make it neon" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Generate design" }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+
+    const calledUrl = String(fetchSpy.mock.calls[0][0]);
+    const encoded = new URL(calledUrl, "http://localhost").searchParams.get(
+      "request",
+    );
+    const sent = JSON.parse(encoded!);
+    expect(sent.kind).toBe("generate-design");
+    expect(sent.sellerPrompt).toBe("make it neon");
+  });
+
+  it("omits sellerPrompt when the textarea is empty", async () => {
+    const fetchSpy = vi.fn<typeof fetch>(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate design" }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+
+    const calledUrl = String(fetchSpy.mock.calls[0][0]);
+    const encoded = new URL(calledUrl, "http://localhost").searchParams.get(
+      "request",
+    );
+    const sent = JSON.parse(encoded!);
+    expect("sellerPrompt" in sent).toBe(false);
+  });
 });

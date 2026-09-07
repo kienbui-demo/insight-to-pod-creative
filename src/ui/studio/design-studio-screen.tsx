@@ -23,6 +23,7 @@ export function DesignStudioScreen({
   historyStore?: StudioHistoryStore;
 }) {
   const [started, setStarted] = useState(false);
+  const [sellerPrompt, setSellerPrompt] = useState("");
   const [runId, setRunId] = useState(() => crypto.randomUUID());
   const [designAssetUrl, setDesignAssetUrl] = useState<string>();
   const [designHistory, setDesignHistory] = useState<PersistedDesign[]>([]);
@@ -50,6 +51,8 @@ export function DesignStudioScreen({
       return undefined;
     }
 
+    const trimmedPrompt = sellerPrompt.trim();
+
     return createSseUiEventSource({
       url: "/api/live",
       runId,
@@ -62,11 +65,14 @@ export function DesignStudioScreen({
           productType: card.productType,
           mode: "live",
         },
+        ...(trimmedPrompt.length > 0
+          ? { sellerPrompt: trimmedPrompt }
+          : {}),
       },
       fetch: globalThis.fetch.bind(globalThis),
       maxReconnects: 1,
     });
-  }, [card, runId, started]);
+  }, [card, runId, sellerPrompt, started]);
 
   function recordDesign(url: string): void {
     const design = {
@@ -149,23 +155,47 @@ export function DesignStudioScreen({
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[0.75fr_1.25fr]">
-        <Panel className="p-6">
-          <h2 className="text-xl font-semibold text-slate-950">Creative direction</h2>
-          <dl className="mt-5 space-y-5 text-sm">
-            <div>
-              <dt className="font-medium text-slate-500">Concept</dt>
-              <dd className="mt-1 text-slate-900">{card.recommendation.action}</dd>
-            </div>
-            <div>
-              <dt className="font-medium text-slate-500">Product</dt>
-              <dd className="mt-1 capitalize text-slate-900">{card.productType}</dd>
-            </div>
-            <div>
-              <dt className="font-medium text-slate-500">Market</dt>
-              <dd className="mt-1 text-slate-900">{card.market}</dd>
-            </div>
-          </dl>
-        </Panel>
+        <div className="space-y-6">
+          <Panel aria-label="Draft design concept" className="p-6">
+            <h2 className="text-xl font-semibold text-slate-950">
+              Draft design concept
+            </h2>
+            <p className="mt-5 text-sm leading-6 text-slate-900">
+              {card.recommendation.action}
+            </p>
+            <dl className="mt-5 grid grid-cols-2 gap-5 text-sm">
+              <div>
+                <dt className="font-medium text-slate-500">Product</dt>
+                <dd className="mt-1 capitalize text-slate-900">
+                  {card.productType}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-slate-500">Market</dt>
+                <dd className="mt-1 text-slate-900">{card.market}</dd>
+              </div>
+            </dl>
+          </Panel>
+
+          <Panel className="p-6">
+            <label
+              className="text-xl font-semibold text-slate-950"
+              htmlFor="seller-prompt"
+            >
+              Your prompt
+            </label>
+            <textarea
+              className="mt-4 min-h-32 w-full resize-y rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+              id="seller-prompt"
+              onChange={(event) => setSellerPrompt(event.target.value)}
+              placeholder="Describe the design you want"
+              value={sellerPrompt}
+            />
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              Leave blank to let the agent draft it from the concept above.
+            </p>
+          </Panel>
+        </div>
 
         <Panel className="overflow-hidden p-6">
           {started && eventSource ? (

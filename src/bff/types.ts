@@ -30,7 +30,7 @@ export type RawMaEvent =
 
 export type BffRequest =
   | { kind: "trend-card"; crawl: CrawlRequest }
-  | { kind: "generate-design"; crawl: CrawlRequest }
+  | { kind: "generate-design"; crawl: CrawlRequest; sellerPrompt?: string }
   | { kind: "deep-dive"; crawl: CrawlRequest; question: string };
 
 export interface BffRequestContext {
