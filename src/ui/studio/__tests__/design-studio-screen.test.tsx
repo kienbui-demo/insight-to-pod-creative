@@ -263,4 +263,48 @@ describe("DesignStudioScreen", () => {
       screen.getByRole("button", { name: "Generate design" }),
     ).toBeInTheDocument();
   });
+
+  it("renders the full draft-design brief reasoning inside the concept panel", () => {
+    render(<DesignStudioScreen card={CARD} />);
+
+    const concept = screen.getByLabelText("Draft design concept");
+    expect(
+      within(concept).getByText(CARD.recommendation.action),
+    ).toBeInTheDocument();
+    expect(
+      within(concept).getByText(CARD.recommendation.reasoning),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a Generate button beneath the concept brief that starts the run", async () => {
+    const fetchSpy = vi.fn<typeof fetch>(async () =>
+      Promise.resolve(
+        new Response(
+          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<DesignStudioScreen card={CARD} />);
+
+    const conceptButton = screen.getByRole("button", {
+      name: "Generate design from concept",
+    });
+    expect(conceptButton).toBeInTheDocument();
+    expect(() => fireEvent.click(conceptButton)).not.toThrow();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it("still resolves a single 'Generate design' button (right-panel empty state)", () => {
+    render(<DesignStudioScreen card={CARD} />);
+
+    expect(() =>
+      screen.getByRole("button", { name: "Generate design" }),
+    ).not.toThrow();
+  });
 });
