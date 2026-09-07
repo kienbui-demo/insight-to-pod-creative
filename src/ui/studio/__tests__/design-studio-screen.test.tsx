@@ -284,28 +284,21 @@ describe("DesignStudioScreen", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders a Generate button beneath the concept brief that starts the run", async () => {
-    const fetchSpy = vi.fn<typeof fetch>(async () =>
-      Promise.resolve(
-        new Response(
-          `data: ${JSON.stringify({ id: "done", type: "done" })}\n\n`,
-          {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-          },
-        ),
-      ),
-    );
-    vi.stubGlobal("fetch", fetchSpy);
-
+  it("renders a 'Served from warehouse' badge inside the concept panel", () => {
     render(<DesignStudioScreen card={CARD} />);
 
-    const conceptButton = screen.getByRole("button", {
-      name: "Generate design from concept",
-    });
-    expect(conceptButton).toBeInTheDocument();
-    expect(() => fireEvent.click(conceptButton)).not.toThrow();
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const concept = screen.getByLabelText("Draft design concept");
+    expect(
+      within(concept).getByText(/served from warehouse/i),
+    ).toBeInTheDocument();
+  });
+
+  it("does not render the concept-panel Generate button", () => {
+    render(<DesignStudioScreen card={CARD} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Generate design from concept" }),
+    ).toBeNull();
   });
 
   it("still resolves a single 'Generate design' button (right-panel empty state)", () => {

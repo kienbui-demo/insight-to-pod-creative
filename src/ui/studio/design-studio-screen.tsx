@@ -248,20 +248,15 @@ export function DesignStudioScreen({
             <h2 className="text-xl font-semibold text-slate-950">
               Draft design concept
             </h2>
+            <div className="mt-4">
+              <Badge>Served from warehouse</Badge>
+            </div>
             <p className="mt-5 text-sm leading-6 text-slate-900">
               {card.recommendation.action}
             </p>
             <p className="mt-3 text-sm leading-6 text-slate-600">
               {card.recommendation.reasoning}
             </p>
-            <button
-              aria-label="Generate design from concept"
-              className={`${primaryActionClass} mt-5`}
-              onClick={startRun}
-              type="button"
-            >
-              Generate design
-            </button>
             <dl className="mt-5 grid grid-cols-2 gap-5 text-sm">
               <div>
                 <dt className="font-medium text-slate-500">Product</dt>
