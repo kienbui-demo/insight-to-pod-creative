@@ -63,6 +63,42 @@ class FakeUiEventSource implements UiEventSource {
 }
 
 describe("LiveTheater", () => {
+  it("keeps the Image ready label when a synthesizing frame arrives after image:ready", async () => {
+    const eventSource = new FakeUiEventSource();
+    render(<LiveTheater eventSource={eventSource} />);
+
+    await act(async () => {
+      eventSource.emit({
+        id: "s1",
+        type: "synthesizing",
+        note: "Comparing signals",
+      } satisfies UiEvent);
+    });
+    expect(await screen.findByText("Synthesizing signals")).toBeInTheDocument();
+
+    await act(async () => {
+      eventSource.emit({
+        id: "img",
+        type: "image:ready",
+        url: "https://tos.example/generated.png",
+      } satisfies UiEvent);
+    });
+    expect(await screen.findByText("Image ready")).toBeInTheDocument();
+
+    // trailing synthesizing frame that today wrongly regresses the label
+    await act(async () => {
+      eventSource.emit({
+        id: "s2",
+        type: "synthesizing",
+        note: "Finalizing",
+      } satisfies UiEvent);
+    });
+
+    // must NOT regress
+    expect(screen.getByText("Image ready")).toBeInTheDocument();
+    expect(screen.queryByText("Synthesizing signals")).not.toBeInTheDocument();
+  });
+
   it("reflects an injected UiEvent stream without opening a network connection", async () => {
     const eventSource = new FakeUiEventSource();
 

@@ -57,7 +57,10 @@ export function reduceCreatorViewState(
       return {
         ...state,
         streamStatus: "active",
-        stage: "synthesizing",
+        stage:
+          state.stage === "image-ready" || state.stage === "card-ready"
+            ? state.stage
+            : "synthesizing",
         synthesisNote: event.note,
         seenEventIds,
       };
