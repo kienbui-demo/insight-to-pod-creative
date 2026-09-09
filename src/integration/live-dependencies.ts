@@ -19,6 +19,7 @@ import { createPostgresQueryExecutor } from "./postgres-query-executor";
 import { PostgresRunSessionRepository } from "./postgres-run-session-repository";
 import { createRepositoryTrendCardLookup } from "./repository-trend-card-lookup";
 import { DEMO_SELLER_ID } from "./demo-seller";
+import { createRescoringLiveSessionPort } from "./rescoring-live-session-port";
 
 export function buildLiveDependencies(
   env: NodeJS.ProcessEnv = process.env,
@@ -67,13 +68,20 @@ export function buildLiveDependencies(
       maxImagesPerAction: 1,
       lookup,
     });
+  const rescoredLiveSessions =
+    crawl === stubCrawlPort
+      ? innerLiveSessions
+      : createRescoringLiveSessionPort({
+          inner: innerLiveSessions,
+          crawl,
+        });
   const withProjectPersistence = executor
     ? createPersistingLiveSessionPort({
-        inner: innerLiveSessions,
+        inner: rescoredLiveSessions,
         projects: new PostgresSellerProjectRepository(executor),
         sellerId: DEMO_SELLER_ID,
       })
-    : innerLiveSessions;
+    : rescoredLiveSessions;
   const liveSessions = trendCardRepository
     ? createPersistingTrendCardSessionPort({
         inner: withProjectPersistence,
