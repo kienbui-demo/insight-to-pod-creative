@@ -590,3 +590,39 @@ panel:
 - Still-frozen audit EMPTY: `packages/contracts/*`, `src/bff/types.ts`, `src/bff/router.ts`, `src/bff/sse-translator.ts`, `src/agent/modelark-managed-agent-client.ts`, `src/agent/ma-event-mapper.ts`, `app/**`, `src/warehouse/*`, `src/scoring/*`, `packages/config/*`, `.env*`, migrations, `src/ui/live-theater/*` all byte-unchanged.
 - Contracts untouched — NO new metric/label/event type added; `ptv_live_request_dispatch_duration_ms` was already defined (lines 156/188) and is now merely observed.
 - Diff review of all 4 unlocked frozen files confirmed every prior response/throw is byte-identical; edits are pure additive logging (no control-flow/order/scoring change).
+
+
+---
+
+## E12 — "Author trend card" hangs forever (no `card:ready`) — FACT diagnosis + fix scope (architect, 2026-09-09)
+
+**Reported symptom (seller, with screenshot):** clicking **Author trend card** for `halloween · US · t-shirt` spins on "Creating your Trend Card…" for ~1 hour and never finishes; the Task-history row is not clickable on hover.
+
+**Architect FACT diagnosis — reproduced LIVE against the running dev server (read-only), NOT code-reading only.**
+- Ran the real `POST /api/live` trend-card stream twice (pre- and post-S15). Run `diag-1788955732` (2026-09-09, post-S15) emitted, in ~12s, EXACTLY:
+  `event: synthesizing → event: scanning {source:"google_trends"} → event: synthesizing → event: answer {markdown} → event: done` and closed cleanly (CURL EXIT 0).
+- **The stream NEVER emits `card:ready`.** The MA agent returns the whole trend card as a chat `answer` (markdown prose ending with "Want me to generate a draft design image?"), not a structured `agent.output`/`final_card`.
+- **Client bug (confirmed in `src/ui/discover/seed-authoring-panel.tsx` at HEAD, lines 86–121):** `consumeTaskSource()` loops the SSE iterator and only calls a completion callback on `card:ready` (→ `onCardReady`) or `error && !recoverable` (→ `onFailed`). On iterator `done` it hits `if (result.done || cancelled) break;` (lines 90–92) and returns WITHOUT calling either callback. So `activeTask`/`eventSource` are never cleared and the sessionStorage task stays `status:"in-progress"` permanently.
+- **UI consequence:** the in-progress branch (lines 373–381) renders a `<p role="status">…</p>` (plain text, NO `<a href>`), so the Task-history row is inherently unclickable. The "1 hour" is a UI stuck-state, not server work — the server finished in ~12s.
+- **Downstream consequence (bigger than the UI):** because no `final_card` event is emitted, the persisting decorator (`persisting-trend-card-live-session-port.ts`, watches `event.type === "final_card"`) and the S14 rescoring decorator BOTH no-op → **the authored card is NEVER persisted to the warehouse.** Even if the client synthesized a cardId, `/trends/{id}` would 404. So the FR9 "author a card" live-scan path currently produces no durable card at all.
+
+**Why "force the agent to emit `final_card`" (the naive Direction A) is OUT OF REPO CONTROL.** Per the S14 FACT finding (recorded above): the trend card the seller sees is produced entirely by the platform-hosted Managed Agent; the repo cannot dictate which tool-uses/outputs the agent emits — that lives on the ModelArk platform side. The agent chose to answer in markdown this run. So the only repo-owned fixes are client-side robustness and/or server-side card synthesis.
+
+### Fix scope — split into B1 (client, no unlock) and B2 (server, needs unlock)
+
+**E12-B1 — Client anti-hang + watchdog (MANDATORY, client-only, NON-frozen `src/ui/discover/*`, no unlock).**
+- Fix `consumeTaskSource()` so a terminal stream WITHOUT `card:ready` resolves the task instead of hanging: when the iterator completes (`result.done`) and no `card:ready` was handled → invoke a new `onEnded`/`onFailed` path that transitions the task off `in-progress`.
+- Terminal state on no-card: mark the task `failed` with a clearer history message (e.g. "No Trend Card was produced — the assistant answered in chat.") rather than the generic red error, so the seller understands the stream ended without a card. (Do NOT add a new DiscoverTask status; reuse `failed` to avoid a persistence-contract change.)
+- Add a WATCHDOG timeout in the consumer: if no terminal event arrives within N seconds (propose 120s), cancel the source and mark the task `failed` ("timed out"). This also covers a genuinely-stuck server stream.
+- Clear `activeTask`/`eventSource` in ALL terminal paths (card:ready, failed, ended, timeout) so the inline spinner stops.
+- Keep byte-identical: the `/api/live` request shape, `?request=` encoding, `maxReconnects:1`, S12/S13 nav-on-card:ready, mount-resume reconnect. New behavior is purely additive on the `done`/timeout branches.
+- RED cases (must fail first) in `seed-authoring-panel.test.tsx`: (1) a fake source that yields `synthesizing → answer → done` (NO card:ready) → task flips to `failed`, inline spinner disappears, history row is NOT a stuck `role="status"`; (2) a fake source that yields nothing then the watchdog fires → task `failed` "timed out"; (3) keep ALL existing tests GREEN (card:ready still routes + marks done, non-recoverable error still fails, submit request byte-shape, mount no-fetch-with-empty-store, resume-in-progress reconnect).
+- DoD (FACTS): `npx tsc --noEmit` clean · `npx eslint src/ui/discover` clean · `npx vitest run src/ui/discover` all pass (existing + new) · `git --no-pager diff --stat` = ONLY `src/ui/discover/seed-authoring-panel.tsx` + its test; every frozen path byte-unchanged. Leave dirty for architect review.
+
+**E12-B2 — Server-side card synthesis on `done`-without-`final_card` (the REAL feature fix; NEEDS a scoped frozen-unlock decision — NOT yet approved).**
+- Problem B1 does not solve: after B1 the seller sees "failed" instead of a card, because nothing server-side turns the crawl data into a persisted `TrendCard` when the agent only answers in markdown.
+- Proposed shape (mirrors S14's "Hướng B" philosophy — repo owns the derivation): a `LiveSessionPort` decorator that, for a `trend-card` run whose stream reaches terminal (`done`) WITHOUT having seen a `final_card`, builds a card server-side from the collected crawl data (reuse the existing `src/warehouse/trend-card-builder.ts` — currently DEAD CODE — + the S14 reducer/scorer), emits a synthetic `final_card` (→ `card:ready` via the existing `ma-event-mapper`) BEFORE `done`, and lets the existing persisting decorator save it.
+- Blast radius: touches FROZEN `src/integration/*` (new decorator + wiring) and possibly `src/agent/*` (to detect stream-terminal-without-card). Requires a scoped, user-approved unlock like S14/S15. Also a product decision: is a repo-synthesized card (vs an agent-authored one) acceptable for FR9? — flag to user.
+- STATUS: **PENDING USER DECISION.** Do not implement without an explicit scoped unlock.
+
+**Sequencing:** land E12-B1 first (kills the infinite hang, safe/non-frozen, one Codex session), then decide E12-B2 (unlock + product call) separately. Direction "A = steer the platform agent" is rejected (out of repo control, per S14).
