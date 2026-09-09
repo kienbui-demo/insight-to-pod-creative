@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as modelarkLiveSessionModule from "../../agent/modelark-live-session";
+import { ConsoleLogMetricSink } from "../../monitoring/console-log-sink";
 import { InMemoryRunSessionRepository } from "../in-memory-run-session-repository";
 import { buildLiveDependencies } from "../live-dependencies";
 import { PostgresRunSessionRepository } from "../postgres-run-session-repository";
@@ -37,6 +39,10 @@ beforeEach(() => {
   constructorArguments.length = 0;
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("buildLiveDependencies run-session wiring", () => {
   it("constructs the ModelArk client with Postgres run sessions when DATABASE_URL is present", () => {
     buildLiveDependencies({
@@ -57,5 +63,22 @@ describe("buildLiveDependencies run-session wiring", () => {
     expect(capturedRunSessions()).toBeInstanceOf(
       InMemoryRunSessionRepository,
     );
+  });
+
+  it("threads one console logging sink through the route, ModelArk client, and live session", () => {
+    const liveSessionFactory = vi.spyOn(
+      modelarkLiveSessionModule,
+      "createModelArkLiveSessionPort",
+    );
+
+    const dependencies = buildLiveDependencies(VALID_ENV);
+    const clientOptions = constructorArguments.at(-1) as
+      | { metricSink?: unknown }
+      | undefined;
+    const liveSessionOptions = liveSessionFactory.mock.calls.at(-1)?.[0];
+
+    expect(dependencies.metricSink).toBeInstanceOf(ConsoleLogMetricSink);
+    expect(clientOptions?.metricSink).toBe(dependencies.metricSink);
+    expect(liveSessionOptions?.metricSink).toBe(dependencies.metricSink);
   });
 });

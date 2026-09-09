@@ -13,6 +13,7 @@ import type {
 } from "../../packages/contracts";
 import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
 import { SafeMetricSink } from "../monitoring/safe-metric-sink";
+import { writeStructuredLog } from "../monitoring/console-log-sink";
 import { mapManagedAgentEvents } from "./ma-event-mapper";
 import type {
   CrawlPort,
@@ -109,12 +110,15 @@ class AsyncEventQueue<T> implements AsyncIterable<T> {
 class ModelArkLiveRun implements LiveRun {
   private readonly output = new AsyncEventQueue<RawMaEvent>();
   private readonly failedSources = new Set<CrawlSource>();
+  private readonly failedSourceReasons = new Map<CrawlSource, string>();
   private readonly toolUses = new Map<string, ManagedAgentEvent>();
   private readonly fulfilledToolUses = new Set<string>();
   private crawlContext: Omit<CrawlPortInput, "source"> | undefined;
   private servedCard: TrendCard | undefined;
+  private taskStartedAt: number | undefined;
 
   constructor(
+    private readonly runId: string,
     private readonly session: ManagedAgentSessionPort,
     rawEvents: AsyncIterable<ManagedAgentEvent>,
     private readonly crawl: CrawlPort | undefined,
@@ -142,6 +146,7 @@ class ModelArkLiveRun implements LiveRun {
   }
 
   async send(request: BffRequest): Promise<void> {
+    this.taskStartedAt = performance.now();
     this.servedCard = undefined;
     if (
       (request.kind === "generate-design" || request.kind === "deep-dive") &&
@@ -176,6 +181,10 @@ class ModelArkLiveRun implements LiveRun {
         }
         if (event.type === "session.error" && event.error.source !== undefined) {
           this.failedSources.add(event.error.source);
+          this.failedSourceReasons.set(
+            event.error.source,
+            event.error.message,
+          );
         }
         if (event.type === "agent.output") {
           const card = event.output.card;
@@ -193,8 +202,21 @@ class ModelArkLiveRun implements LiveRun {
               observedAt: new Date().toISOString(),
               observationId: `live-crawl:${event.id}:${source}`,
             });
+            writeStructuredLog({
+              step: "crawl_source",
+              runId: this.runId,
+              source,
+              mode: "live",
+              stage: "final_card",
+              outcome: "success",
+            });
           }
           for (const source of card.missingSources) {
+            const failed = this.failedSources.has(source);
+            const outcome = failed ? "failure" : "empty";
+            const reason = failed
+              ? (this.failedSourceReasons.get(source) ?? "source failed")
+              : "no records returned";
             this.metricSink.record({
               name: "ptv_crawl_source_run_total",
               kind: "counter",
@@ -202,28 +224,53 @@ class ModelArkLiveRun implements LiveRun {
               labels: {
                 source,
                 mode: "live",
-                outcome: this.failedSources.has(source) ? "failure" : "empty",
+                outcome,
                 stage: "final_card",
               },
               observedAt: new Date().toISOString(),
               observationId: `live-crawl:${event.id}:${source}`,
             });
+            writeStructuredLog({
+              step: "crawl_source",
+              runId: this.runId,
+              source,
+              mode: "live",
+              stage: "final_card",
+              outcome,
+              reason,
+            });
           }
+          const buildOutcome =
+            card.availableSources.length === 0
+              ? "zero_evidence"
+              : card.missingSources.length === 0
+                ? "complete"
+                : "degraded";
           this.metricSink.record({
             name: "ptv_trend_card_build_total",
             kind: "counter",
             value: 1,
             labels: {
               mode: "live",
-              outcome:
-                card.availableSources.length === 0
-                  ? "zero_evidence"
-                  : card.missingSources.length === 0
-                    ? "complete"
-                    : "degraded",
+              outcome: buildOutcome,
             },
             observedAt: new Date().toISOString(),
             observationId: `live-card:${event.id}`,
+          });
+          writeStructuredLog({
+            step: "trend_card_build",
+            runId: this.runId,
+            outcome: buildOutcome,
+            availableSourceCount: card.availableSources.length,
+            missingSourceCount: card.missingSources.length,
+            ...(this.taskStartedAt === undefined
+              ? {}
+              : {
+                  durationMs: Math.max(
+                    0,
+                    performance.now() - this.taskStartedAt,
+                  ),
+                }),
           });
         }
         if (
@@ -266,6 +313,7 @@ class ModelArkLiveRun implements LiveRun {
               continue;
             }
             if (toolUse.name === "crawl") {
+              const crawlStartedAt = performance.now();
               const servedCard = this.servedCard;
               const result: CrawlPortResult =
                 servedCard !== undefined
@@ -282,7 +330,16 @@ class ModelArkLiveRun implements LiveRun {
                       });
               if (!result.ok) {
                 this.failedSources.add(toolUse.input.source);
+                this.failedSourceReasons.set(
+                  toolUse.input.source,
+                  result.message,
+                );
               }
+              const crawlOutcome = !result.ok
+                ? "failure"
+                : result.records.length === 0
+                  ? "empty"
+                  : "success";
               const crawlMetric = {
                 name: "ptv_crawl_source_run_total",
                 kind: "counter",
@@ -290,11 +347,7 @@ class ModelArkLiveRun implements LiveRun {
                 labels: {
                   source: toolUse.input.source,
                   mode: servedCard === undefined ? "live" : "warehouse",
-                  outcome: !result.ok
-                    ? "failure"
-                    : result.records.length === 0
-                      ? "empty"
-                      : "success",
+                  outcome: crawlOutcome,
                   stage: "execute",
                 },
                 observedAt: new Date().toISOString(),
@@ -303,6 +356,20 @@ class ModelArkLiveRun implements LiveRun {
               // P9 adds a warehouse execution label while the frozen C8 contract
               // still models only CrawlRequest modes ("batch" | "live").
               this.metricSink.record(crawlMetric as MetricObservation);
+              writeStructuredLog({
+                step: "crawl_source",
+                runId: this.runId,
+                source: toolUse.input.source,
+                mode: servedCard === undefined ? "live" : "warehouse",
+                stage: "execute",
+                outcome: crawlOutcome,
+                durationMs: Math.max(0, performance.now() - crawlStartedAt),
+                ...(!result.ok
+                  ? { reason: result.message }
+                  : result.records.length === 0
+                    ? { reason: "no records returned" }
+                    : {}),
+              });
 
               const resultEvent = {
                 id: `${toolUseId}:result`,
@@ -360,6 +427,12 @@ class ModelArkLiveRun implements LiveRun {
       }
       this.output.close();
     } catch (error) {
+      writeStructuredLog({
+        step: "live_session",
+        runId: this.runId,
+        outcome: "error",
+        reason: error instanceof Error ? error.message : String(error),
+      });
       this.output.fail(error);
     }
   }
@@ -376,6 +449,7 @@ export function createModelArkLiveSessionPort(
       const session = await options.client.attachOrCreate(runId);
       const rawEvents = session.openEvents();
       return new ModelArkLiveRun(
+        runId,
         session,
         rawEvents,
         options.crawl,

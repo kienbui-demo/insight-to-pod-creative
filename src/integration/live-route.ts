@@ -17,6 +17,7 @@ import type {
 } from "../bff/types";
 import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
 import { SafeMetricSink } from "../monitoring/safe-metric-sink";
+import { writeStructuredLog } from "../monitoring/console-log-sink";
 
 interface CreditGatePort {
   debit(request: CreditDebitRequest): Promise<CreditDebitResult>;
@@ -48,6 +49,10 @@ const SSE_HEADERS = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function parseBody(value: unknown, requestUrl: string): LiveRequestBody {
@@ -144,16 +149,51 @@ export function createLivePostHandler(
   return async function post(request: Request): Promise<Response> {
     const body = parseBody(await request.json(), request.url);
     const requestKind = monitoringRequestKind(body.request.kind);
+    const startedAt = performance.now();
+    let requestOutcomeRecorded = false;
+    writeStructuredLog({
+      step: "live_request",
+      phase: "start",
+      runId: body.runId,
+      requestKind,
+      seed: body.request.crawl.seed,
+      market: body.request.crawl.market,
+    });
     const recordRequest = (
       deliveryPath: LiveDeliveryPath,
       outcome: "success" | "error" | "cancelled",
+      reason?: string,
     ): void => {
+      if (requestOutcomeRecorded) {
+        return;
+      }
+      requestOutcomeRecorded = true;
+      const observedAt = new Date().toISOString();
+      const durationMs = Math.max(0, performance.now() - startedAt);
+      const labels = { requestKind, deliveryPath, outcome } as const;
       metricSink.record({
         name: "ptv_live_request_total",
         kind: "counter",
         value: 1,
-        labels: { requestKind, deliveryPath, outcome },
-        observedAt: new Date().toISOString(),
+        labels,
+        observedAt,
+      });
+      metricSink.record({
+        name: "ptv_live_request_dispatch_duration_ms",
+        kind: "distribution",
+        value: durationMs,
+        labels,
+        observedAt,
+      });
+      writeStructuredLog({
+        step: "live_request",
+        phase: "end",
+        runId: body.runId,
+        requestKind,
+        deliveryPath,
+        outcome,
+        durationMs,
+        ...(reason === undefined ? {} : { reason }),
       });
     };
     const instrumentedDependencies = { ...dependencies, metricSink };
@@ -164,7 +204,9 @@ export function createLivePostHandler(
       monetized &&
       (!dependencies.credits || !dependencies.authenticateSeller)
     ) {
-      throw new Error("Incomplete monetization dependencies");
+      const error = new Error("Incomplete monetization dependencies");
+      recordRequest("managed_agent", "error", error.message);
+      throw error;
     }
 
     const context = {
@@ -185,14 +227,20 @@ export function createLivePostHandler(
         );
         return resultResponse(result, body.runId);
       } catch (error) {
-        recordRequest("managed_agent", "error");
+        recordRequest("managed_agent", "error", errorMessage(error));
         throw error;
       }
     }
 
     let liveDependencies: BffDependencies = instrumentedDependencies;
     if (body.request.kind === "trend-card") {
-      const lookup = await dependencies.lookup.lookup(body.request.crawl);
+      let lookup;
+      try {
+        lookup = await dependencies.lookup.lookup(body.request.crawl);
+      } catch (error) {
+        recordRequest("managed_agent", "error", errorMessage(error));
+        throw error;
+      }
       if (lookup.kind === "hit") {
         recordRequest("cache_hit", "success");
         return resultResponse(
@@ -215,22 +263,30 @@ export function createLivePostHandler(
       typeof meteredRequest.idempotencyKey !== "string" ||
       meteredRequest.idempotencyKey.length === 0
     ) {
-      throw new Error("Metered request requires an idempotencyKey");
+      const error = new Error("Metered request requires an idempotencyKey");
+      recordRequest("managed_agent", "error", error.message);
+      throw error;
     }
 
-    const authenticated = await dependencies.authenticateSeller!(request);
-    const debit = await dependencies.credits!.debit({
-      sellerId: authenticated.sellerId,
-      runId: body.runId,
-      action,
-      idempotencyKey: meteredRequest.idempotencyKey,
-    });
+    let debit: CreditDebitResult;
+    try {
+      const authenticated = await dependencies.authenticateSeller!(request);
+      debit = await dependencies.credits!.debit({
+        sellerId: authenticated.sellerId,
+        runId: body.runId,
+        action,
+        idempotencyKey: meteredRequest.idempotencyKey,
+      });
+    } catch (error) {
+      recordRequest("managed_agent", "error", errorMessage(error));
+      throw error;
+    }
     if (!debit.ok) {
       if ("decision" in debit) {
-        recordRequest("credit_rejected", "error");
+        recordRequest("credit_rejected", "error", debit.error.code);
         return jsonError(debit.error, 402);
       }
-      recordRequest("credit_conflict", "error");
+      recordRequest("credit_conflict", "error", debit.error.code);
       return jsonError(debit.error, 409);
     }
 
@@ -243,7 +299,7 @@ export function createLivePostHandler(
       recordRequest("managed_agent", "success");
       return resultResponse(result, body.runId);
     } catch (error) {
-      recordRequest("managed_agent", "error");
+      recordRequest("managed_agent", "error", errorMessage(error));
       throw error;
     }
   };

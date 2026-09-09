@@ -5,6 +5,8 @@ import { createApifyActorRegistry } from "../agent/apify-actors/registry";
 import { ModelArkManagedAgentClient } from "../agent/modelark-managed-agent-client";
 import * as modelarkLiveSessionModule from "../agent/modelark-live-session";
 import { stubCrawlPort } from "../agent/stub-crawl-port";
+import { ConsoleLogMetricSink } from "../monitoring/console-log-sink";
+import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
 import { PostgresSellerProjectRepository } from "../storage/postgres-seller-project-repository";
 import { PostgresTrendCardRepository } from "../storage/postgres-trend-card-repository";
 import { alwaysMissTrendCardLookup } from "./always-miss-trend-card-lookup";
@@ -25,6 +27,7 @@ export function buildLiveDependencies(
   env: NodeJS.ProcessEnv = process.env,
 ): MonetizedLiveDependencies {
   const config = loadModelArkConfig(env);
+  const metricSink = new ConsoleLogMetricSink(NOOP_METRIC_SINK);
   const databaseUrl = env.DATABASE_URL;
   const pool = databaseUrl
     ? new Pool({ connectionString: databaseUrl })
@@ -36,6 +39,7 @@ export function buildLiveDependencies(
   const client = new ModelArkManagedAgentClient({
     ...config,
     runSessions,
+    metricSink,
   });
   const seedream = seedreamModule.createModelArkSeedreamImagePort({
     baseUrl: config.baseUrl,
@@ -48,7 +52,7 @@ export function buildLiveDependencies(
     model: config.embeddingModel,
   });
   const trendCardRepository = executor
-    ? new PostgresTrendCardRepository(executor, embeddings)
+    ? new PostgresTrendCardRepository(executor, embeddings, metricSink)
     : undefined;
   const lookup = trendCardRepository
     ? createRepositoryTrendCardLookup(trendCardRepository)
@@ -67,6 +71,7 @@ export function buildLiveDependencies(
       seedream,
       maxImagesPerAction: 1,
       lookup,
+      metricSink,
     });
   const rescoredLiveSessions =
     crawl === stubCrawlPort
@@ -93,5 +98,6 @@ export function buildLiveDependencies(
   return {
     lookup,
     liveSessions,
+    metricSink,
   };
 }

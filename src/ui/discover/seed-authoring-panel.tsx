@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 
+import type { UiEvent } from "../../../packages/contracts";
 import { Badge, Panel, primaryActionClass } from "../components/ui-primitives";
 import type { UiEventSource } from "../live-theater/event-source";
 import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
@@ -20,6 +21,31 @@ import {
 
 const fieldClass =
   "mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
+const INITIAL_PROGRESS = "Creating your Trend Card…";
+
+function sourceLabel(source: string): string {
+  return source
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function progressLabel(event: UiEvent): string | undefined {
+  switch (event.type) {
+    case "scanning":
+      return `Scanning ${sourceLabel(event.source)}…`;
+    case "synthesizing":
+      return "Synthesizing…";
+    case "image:ready":
+      return "Generating design…";
+    case "answer":
+      return "Finalizing Trend Card…";
+    case "card:ready":
+    case "error":
+    case "done":
+      return undefined;
+  }
+}
 
 function createTaskEventSource(task: DiscoverTask): UiEventSource {
   return createSseUiEventSource({
@@ -45,11 +71,13 @@ function consumeTaskSource({
   task,
   onCardReady,
   onFailed,
+  onProgress,
 }: {
   source: UiEventSource;
   task: DiscoverTask;
   onCardReady: (task: DiscoverTask, cardId: string) => void;
   onFailed: (task: DiscoverTask) => void;
+  onProgress: (task: DiscoverTask, label: string) => void;
 }): () => void {
   const iterator = source.events()[Symbol.asyncIterator]();
   let cancelled = false;
@@ -64,6 +92,10 @@ function consumeTaskSource({
         }
 
         const event = result.value;
+        const label = progressLabel(event);
+        if (label !== undefined) {
+          onProgress(task, label);
+        }
         if (event.type === "card:ready" && !cardReadyHandled) {
           cardReadyHandled = true;
           onCardReady(task, event.card.id);
@@ -111,6 +143,14 @@ export function SeedAuthoringPanel({
   const [eventSource, setEventSource] = useState<UiEventSource>();
   const [activeTask, setActiveTask] = useState<DiscoverTask>();
   const [tasks, setTasks] = useState<DiscoverTask[]>([]);
+  const [taskProgress, setTaskProgress] = useState<Record<string, string>>({});
+
+  const updateTaskProgress = useCallback(
+    (task: DiscoverTask, label: string): void => {
+      setTaskProgress((current) => ({ ...current, [task.id]: label }));
+    },
+    [],
+  );
 
   const completeTask = useCallback(
     (task: DiscoverTask, cardId: string): void => {
@@ -152,6 +192,7 @@ export function SeedAuthoringPanel({
           task,
           onCardReady: completeTask,
           onFailed: failTask,
+          onProgress: updateTaskProgress,
         }),
       );
 
@@ -160,7 +201,7 @@ export function SeedAuthoringPanel({
         cancel();
       }
     };
-  }, [completeTask, failTask, store]);
+  }, [completeTask, failTask, store, updateTaskProgress]);
 
   useEffect(() => {
     if (!eventSource || !activeTask) {
@@ -180,8 +221,15 @@ export function SeedAuthoringPanel({
         setEventSource(undefined);
         setActiveTask(undefined);
       },
+      onProgress: updateTaskProgress,
     });
-  }, [activeTask, completeTask, eventSource, failTask]);
+  }, [
+    activeTask,
+    completeTask,
+    eventSource,
+    failTask,
+    updateTaskProgress,
+  ]);
 
   function submitSeed(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -293,7 +341,9 @@ export function SeedAuthoringPanel({
 
       {eventSource ? (
         <p className="text-sm font-medium text-indigo-700" role="status">
-          Creating your Trend Card…
+          {activeTask === undefined
+            ? INITIAL_PROGRESS
+            : (taskProgress[activeTask.id] ?? INITIAL_PROGRESS)}
         </p>
       ) : null}
 
@@ -325,8 +375,8 @@ export function SeedAuthoringPanel({
                     className="text-sm font-medium text-indigo-700"
                     role="status"
                   >
-                    Creating your Trend Card… {task.seed} · {task.market} ·{" "}
-                    {task.productType}
+                    {taskProgress[task.id] ?? INITIAL_PROGRESS} {task.seed} ·{" "}
+                    {task.market} · {task.productType}
                   </p>
                 )}
               </div>

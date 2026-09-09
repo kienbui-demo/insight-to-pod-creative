@@ -369,4 +369,99 @@ describe("SeedAuthoringPanel", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/spring florals/i);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("shows the current scanning source in the active task and history row", async () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    fetchSpy.mockResolvedValue(
+      sseResponse(
+        {
+          id: "scan-google",
+          type: "scanning",
+          source: "google_trends",
+        },
+        { id: "done", type: "done" },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    const taskStore = createTaskStore();
+
+    render(<SeedAuthoringPanel taskStore={taskStore} />);
+    fireEvent.change(screen.getByLabelText("Topic"), {
+      target: { value: "alpine folklore" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Author trend card" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getAllByText(/Scanning Google Trends…/)).toHaveLength(2),
+    );
+    expect(taskStore.load()[0]?.status).toBe("in-progress");
+    expect(pushSpy).not.toHaveBeenCalled();
+  });
+
+  it("advances the task label through synthesis, image generation, and finalization", async () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    fetchSpy.mockResolvedValue(
+      sseResponse(
+        { id: "synthesis", type: "synthesizing", note: "Combining signals" },
+        {
+          id: "image-ready",
+          type: "image:ready",
+          url: "https://example.com/private-design.png",
+        },
+        { id: "answer", type: "answer", text: "Private agent answer" },
+        { id: "done", type: "done" },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    const taskStore = createTaskStore();
+
+    render(<SeedAuthoringPanel taskStore={taskStore} />);
+    fireEvent.change(screen.getByLabelText("Topic"), {
+      target: { value: "alpine folklore" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Author trend card" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getAllByText(/Finalizing Trend Card…/)).toHaveLength(2),
+    );
+    expect(screen.queryByText("Private agent answer")).toBeNull();
+    expect(
+      screen.queryByAltText(/generated (preview|design)/i),
+    ).toBeNull();
+    expect(taskStore.load()[0]?.status).toBe("in-progress");
+    expect(pushSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the existing terminal failure behavior after progress events", async () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    fetchSpy.mockResolvedValue(
+      sseResponse(
+        { id: "synthesis", type: "synthesizing" },
+        {
+          id: "fatal",
+          type: "error",
+          recoverable: false,
+          message: "Unable to build the card",
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    const taskStore = createTaskStore();
+
+    render(<SeedAuthoringPanel taskStore={taskStore} />);
+    fireEvent.change(screen.getByLabelText("Topic"), {
+      target: { value: "alpine folklore" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Author trend card" }),
+    );
+
+    await waitFor(() => expect(taskStore.load()[0]?.status).toBe("failed"));
+    expect(screen.getByRole("alert")).toHaveTextContent(/alpine folklore/i);
+    expect(pushSpy).not.toHaveBeenCalled();
+  });
 });

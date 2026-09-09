@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   CreateRunSessionMapping,
@@ -13,6 +13,7 @@ import { createModelArkLiveSessionPort } from "../modelark-live-session";
 import { ModelArkManagedAgentClient } from "../modelark-managed-agent-client";
 import type { ManagedAgentEvent } from "../ports";
 import { FakeManagedAgentClient } from "./support/fake-managed-agent-client";
+import { FakeCrawlPort } from "./support/fake-crawl-port";
 import { FakeSeedreamImagePort } from "./support/fake-seedream-image-port";
 import { collectAsync } from "./support/manual-async-stream";
 
@@ -42,6 +43,23 @@ class InMemoryRunSessions implements RunSessionRepository {
     return this.mapping;
   }
 }
+
+function structuredLines(consoleLog: ReturnType<typeof vi.spyOn>) {
+  return consoleLog.mock.calls.map(([line]) => JSON.parse(String(line)) as {
+    ts?: string;
+    step?: string;
+    runId?: string;
+    source?: string;
+    stage?: string;
+    outcome?: string;
+    durationMs?: number;
+    reason?: string;
+  });
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("agent C8 monitoring", () => {
   it("records live crawl failure/contribution while preserving the exact C4 input stream", async () => {
@@ -196,5 +214,90 @@ describe("agent C8 monitoring", () => {
       expect.objectContaining({ type: "error", recoverable: true }),
       expect.objectContaining({ type: "final_card" }),
     ]);
+  });
+
+  it("logs crawl execution and final-card progress with runId, outcome, duration, and failure reason", async () => {
+    const consoleLog = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
+    const client = new FakeManagedAgentClient();
+    const crawl = new FakeCrawlPort([
+      {
+        ok: false,
+        recoverable: true,
+        message: "Reddit crawl timed out",
+      },
+    ]);
+    const sessions = createModelArkLiveSessionPort({
+      client,
+      crawl,
+      seedream: new FakeSeedreamImagePort(),
+      maxImagesPerAction: 1,
+      metricSink: new InMemoryMetricSink(),
+    });
+    const run = await sessions.create("run-structured-agent");
+    const collected = collectAsync(run.openEvents());
+    const card = trendCardMissing("reddit");
+
+    await run.send(REQUEST);
+    client.session.events.push({
+      id: "crawl-reddit",
+      type: "agent.custom_tool_use",
+      name: "crawl",
+      input: { source: "reddit" },
+    });
+    client.session.events.push({
+      id: "requires-reddit",
+      type: "session.status_idle",
+      stop_reason: { type: "requires_action", event_ids: ["crawl-reddit"] },
+    });
+    client.session.events.push({
+      id: "final-reddit",
+      type: "agent.output",
+      output: { kind: "trend_card", card },
+    });
+    client.session.events.push({
+      id: "done-reddit",
+      type: "session.status_idle",
+      stop_reason: { type: "end_turn" },
+    });
+
+    await expect(collected).resolves.toEqual([
+      expect.objectContaining({ type: "tool_call", source: "reddit" }),
+      expect.objectContaining({ type: "unmapped" }),
+      expect.objectContaining({ type: "final_card", card }),
+    ]);
+
+    const lines = structuredLines(consoleLog);
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          step: "crawl_source",
+          runId: "run-structured-agent",
+          source: "reddit",
+          stage: "execute",
+          outcome: "failure",
+          durationMs: expect.any(Number),
+          reason: "Reddit crawl timed out",
+        }),
+        expect.objectContaining({
+          step: "crawl_source",
+          runId: "run-structured-agent",
+          source: "reddit",
+          stage: "final_card",
+          outcome: "failure",
+          reason: "Reddit crawl timed out",
+        }),
+        expect.objectContaining({
+          step: "trend_card_build",
+          runId: "run-structured-agent",
+          outcome: "degraded",
+          durationMs: expect.any(Number),
+        }),
+      ]),
+    );
+    for (const line of lines) {
+      expect(new Date(line.ts ?? "invalid").toISOString()).toBe(line.ts);
+    }
   });
 });

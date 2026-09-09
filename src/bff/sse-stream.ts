@@ -7,6 +7,7 @@ import type {
 } from "../../packages/contracts";
 import { NOOP_METRIC_SINK } from "../monitoring/no-op-metric-sink";
 import { SafeMetricSink } from "../monitoring/safe-metric-sink";
+import { writeStructuredLog } from "../monitoring/console-log-sink";
 import { encodeSseEvent } from "./sse-encoder";
 import { translateRawMaEvent } from "./sse-translator";
 import type { RawMaEvent } from "./types";
@@ -30,6 +31,7 @@ export function createSseStream(
   const metricSink = new SafeMetricSink(
     options.metricSink ?? NOOP_METRIC_SINK,
   );
+  const startedAt = performance.now();
   let iterator: AsyncIterator<RawMaEvent> | undefined;
   let stopped = false;
   let terminalEmitted = false;
@@ -40,6 +42,7 @@ export function createSseStream(
   const recordEvent = (
     eventType: MonitoringSseEventType,
     disposition: SseEventDisposition,
+    event?: UiEvent,
   ): void => {
     metricSink.record({
       name: "ptv_sse_event_total",
@@ -48,9 +51,20 @@ export function createSseStream(
       labels: { eventType, disposition },
       observedAt: new Date().toISOString(),
     });
+    writeStructuredLog({
+      step: "sse_event",
+      runId: options.runId,
+      eventType,
+      outcome: disposition,
+      ...(event?.type === "scanning" ? { source: event.source } : {}),
+      ...(event?.type === "error" ? { message: event.message } : {}),
+    });
   };
 
-  const recordStreamOutcome = (outcome: SseStreamOutcome): void => {
+  const recordStreamOutcome = (
+    outcome: SseStreamOutcome,
+    reason?: string,
+  ): void => {
     if (streamOutcomeRecorded) {
       return;
     }
@@ -61,6 +75,13 @@ export function createSseStream(
       value: 1,
       labels: { outcome },
       observedAt: new Date().toISOString(),
+    });
+    writeStructuredLog({
+      step: "sse_stream",
+      runId: options.runId,
+      outcome,
+      durationMs: Math.max(0, performance.now() - startedAt),
+      ...(reason === undefined ? {} : { reason }),
     });
   };
 
@@ -81,18 +102,19 @@ export function createSseStream(
           return false;
         }
         if (seen.has(event.id)) {
-          recordEvent(event.type, "deduplicated");
+          recordEvent(event.type, "deduplicated", event);
           return false;
         }
         seen.add(event.id);
         controller.enqueue(encodeSseEvent(event));
-        recordEvent(event.type, "emitted");
+        recordEvent(event.type, "emitted", event);
         return true;
       };
 
       const terminate = (
         outcome: Extract<SseStreamOutcome, "done" | "fatal_error">,
         event?: UiEvent,
+        reason?: string,
       ): void => {
         if (terminalEmitted || stopped) {
           return;
@@ -103,7 +125,10 @@ export function createSseStream(
         }
         stopped = true;
         controller.close();
-        recordStreamOutcome(outcome);
+        recordStreamOutcome(
+          outcome,
+          reason ?? (event?.type === "error" ? event.message : undefined),
+        );
       };
 
       const abort = (): void => {
@@ -112,7 +137,12 @@ export function createSseStream(
         }
         stopped = true;
         void closeIterator();
-        recordStreamOutcome("cancelled");
+        recordStreamOutcome(
+          "cancelled",
+          options.signal?.reason === undefined
+            ? undefined
+            : errorMessage(options.signal.reason),
+        );
         if (!clientCancelled) {
           controller.close();
         }
@@ -138,7 +168,7 @@ export function createSseStream(
             }
             enqueue(event);
             if (event.type === "error" && !event.recoverable) {
-              terminate("fatal_error");
+              terminate("fatal_error", undefined, event.message);
               return;
             }
           }
@@ -162,7 +192,7 @@ export function createSseStream(
             enqueue(event);
             if (event.type === "error" && !event.recoverable) {
               await closeIterator();
-              terminate("fatal_error");
+              terminate("fatal_error", undefined, event.message);
               return;
             }
           }
@@ -178,6 +208,7 @@ export function createSseStream(
               recoverable: false,
               message: errorMessage(error),
             },
+            errorMessage(error),
           );
         } finally {
           options.signal?.removeEventListener("abort", abort);
@@ -187,7 +218,10 @@ export function createSseStream(
     async cancel(reason) {
       clientCancelled = true;
       stopped = true;
-      recordStreamOutcome("cancelled");
+      recordStreamOutcome(
+        "cancelled",
+        reason === undefined ? undefined : errorMessage(reason),
+      );
       await closeIterator();
       await options.onCancel?.(reason);
     },

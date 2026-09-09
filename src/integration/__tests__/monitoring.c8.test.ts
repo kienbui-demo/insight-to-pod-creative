@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   CreditDebitRequest,
@@ -144,6 +144,26 @@ function setup(
   return { credits, liveSessions, metricSink, post };
 }
 
+function parsedConsoleLines(consoleLog: ReturnType<typeof vi.spyOn>) {
+  return consoleLog.mock.calls.map(([line]) => JSON.parse(String(line)) as {
+    ts?: string;
+    step?: string;
+    phase?: string;
+    runId?: string;
+    requestKind?: string;
+    seed?: string;
+    market?: string;
+    deliveryPath?: string;
+    outcome?: string;
+    durationMs?: number;
+    reason?: string;
+  });
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("live-route C8 monitoring", () => {
   it("records cache-hit success without opening MA or recording MA infrastructure", async () => {
     const { liveSessions, metricSink, post } = setup({
@@ -224,5 +244,123 @@ describe("live-route C8 monitoring", () => {
       },
       value: 1,
     });
+  });
+
+  it("records the existing live-request dispatch-duration metric", async () => {
+    const { metricSink, post } = setup({
+      kind: "hit",
+      card: RECORDED_TREND_CARD,
+    });
+
+    await post(
+      request("duration-run", {
+        kind: "trend-card",
+        crawl: CRAWL,
+        idempotencyKey: "duration-key",
+      }),
+    );
+
+    expect(metricSink.snapshot().distributions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "ptv_live_request_dispatch_duration_ms",
+          labels: {
+            requestKind: "trend_card",
+            deliveryPath: "cache_hit",
+            outcome: "success",
+          },
+          samples: [expect.any(Number)],
+        }),
+      ]),
+    );
+  });
+
+  it("logs timestamped request start and successful end metadata", async () => {
+    const consoleLog = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
+    const { post } = setup({
+      kind: "hit",
+      card: RECORDED_TREND_CARD,
+    });
+
+    await post(
+      request("structured-run", {
+        kind: "trend-card",
+        crawl: CRAWL,
+        idempotencyKey: "structured-key",
+      }),
+    );
+
+    const requestLines = parsedConsoleLines(consoleLog).filter(
+      (line) => line.step === "live_request",
+    );
+    expect(requestLines).toHaveLength(2);
+    expect(requestLines[0]).toEqual(
+      expect.objectContaining({
+        step: "live_request",
+        phase: "start",
+        runId: "structured-run",
+        requestKind: "trend_card",
+        seed: "retro halloween cats",
+        market: "US",
+      }),
+    );
+    expect(requestLines[1]).toEqual(
+      expect.objectContaining({
+        step: "live_request",
+        phase: "end",
+        runId: "structured-run",
+        requestKind: "trend_card",
+        deliveryPath: "cache_hit",
+        outcome: "success",
+        durationMs: expect.any(Number),
+      }),
+    );
+    for (const line of requestLines) {
+      expect(new Date(line.ts ?? "invalid").toISOString()).toBe(line.ts);
+    }
+  });
+
+  it("logs a failure reason once and rethrows the original dispatch error", async () => {
+    const consoleLog = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
+    const failure = new Error("ModelArk send failed with status 503");
+    const metricSink = new InMemoryMetricSink();
+    const post = createLivePostHandler({
+      lookup: new FakeLookup({ kind: "miss" }),
+      liveSessions: {
+        async create() {
+          throw failure;
+        },
+      },
+      metricSink,
+    });
+
+    await expect(
+      post(
+        request("failed-run", {
+          kind: "trend-card",
+          crawl: CRAWL,
+          idempotencyKey: "failed-key",
+        }),
+      ),
+    ).rejects.toBe(failure);
+
+    const endLines = parsedConsoleLines(consoleLog).filter(
+      (line) =>
+        line.step === "live_request" &&
+        line.phase === "end" &&
+        line.runId === "failed-run",
+    );
+    expect(endLines).toHaveLength(1);
+    expect(endLines[0]).toEqual(
+      expect.objectContaining({
+        outcome: "error",
+        reason: "ModelArk send failed with status 503",
+        durationMs: expect.any(Number),
+      }),
+    );
   });
 });
