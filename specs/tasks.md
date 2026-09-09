@@ -626,3 +626,12 @@ panel:
 - STATUS: **PENDING USER DECISION.** Do not implement without an explicit scoped unlock.
 
 **Sequencing:** land E12-B1 first (kills the infinite hang, safe/non-frozen, one Codex session), then decide E12-B2 (unlock + product call) separately. Direction "A = steer the platform agent" is rejected (out of repo control, per S14).
+
+**E12-B1 — DONE (2026-09-09, commit `b29ee38`).** Client anti-hang + watchdog landed, verified by FACT (architect re-ran):
+- `consumeTaskSource()` now resolves the task on EVERY terminal path via a single `terminalHandled` guard: `card:ready`→`onCardReady` (unchanged: marks done + `router.push("/trends/"+cardId)`), `error && !recoverable`→`onFailed`, iterator `done`/`event.type==="done"` without a card→`onEnded` (marks `failed`, message "No Trend Card was produced — the assistant answered in chat."), and a `TASK_WATCHDOG_TIMEOUT_MS = 120_000` watchdog→`onTimedOut` (marks `failed`, "Trend Card creation timed out."). Watchdog cleared on every terminal path, in `finally`, and in the cancel closure.
+- Distinct failure text surfaced via a NON-persisted React-state map `taskFailureMessages` (keyed by task id); the persisted `DiscoverTask` type is UNCHANGED (no new field, no new status, `discover-persistence.ts` untouched). Render falls back to the generic failed message when absent.
+- `activeTask`/`eventSource` cleared in all terminal paths (via `clearActiveTask()`) so the inline `role="status"` spinner stops in every case.
+- Byte-identical preserved: `/api/live` request shape, `?request=` encoding, `maxReconnects:1`, S12/S13 nav-on-card:ready, mount-resume reconnect — new logic purely additive.
+- FACT DoD: `npx tsc --noEmit` exit 0 · `npx eslint src/ui/discover` exit 0 · `npx vitest run src/ui/discover` 18/18 pass (the 2 previously-RED tests now GREEN) · `git --no-pager diff --stat` = ONLY `seed-authoring-panel.tsx` + its test; no frozen path touched; `git diff --check` clean.
+- TDD: RED verified first (2 failed | 16 passed, both `expected 'in-progress' to be 'failed'`), then GREEN (all 18 pass). One Codex session (id `01a0861c…`) reused across plan→RED→GREEN.
+- E12-B2 remains PENDING USER DECISION (server-side card synthesis; needs scoped frozen unlock of `src/integration/*` + product call on repo-synthesized vs agent-authored cards for FR9).
