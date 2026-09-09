@@ -635,3 +635,30 @@ panel:
 - FACT DoD: `npx tsc --noEmit` exit 0 · `npx eslint src/ui/discover` exit 0 · `npx vitest run src/ui/discover` 18/18 pass (the 2 previously-RED tests now GREEN) · `git --no-pager diff --stat` = ONLY `seed-authoring-panel.tsx` + its test; no frozen path touched; `git diff --check` clean.
 - TDD: RED verified first (2 failed | 16 passed, both `expected 'in-progress' to be 'failed'`), then GREEN (all 18 pass). One Codex session (id `01a0861c…`) reused across plan→RED→GREEN.
 - E12-B2 remains PENDING USER DECISION (server-side card synthesis; needs scoped frozen unlock of `src/integration/*` + product call on repo-synthesized vs agent-authored cards for FR9).
+
+---
+
+## E12-B2 — Server-side trend-card synthesis on terminal-without-`final_card` (APPROVED, scoped frozen-unlock, architect 2026-09-09)
+
+**Product decision (user-confirmed):** the seller's Trend Card MUST flow through the existing repo pipeline — built by the warehouse builder, persisted to the warehouse, then rendered as the insight dashboard at `/trends/{id}`. A **repo-synthesized** card (deterministic: `buildTrendCard` + component-reducer + `scoreOpportunity` + recommendation) is ACCEPTED for FR9. A markdown chat answer is NOT a durable card. Direction A (force the platform agent to emit `final_card`) stays rejected (out of repo control, per S14).
+
+**FACT basis (verified this session by reading HEAD):**
+- `RawMaEvent` (`src/bff/types.ts`) has NO `"done"` event — the terminal signal at the integration layer is the `openEvents()` async-iterator's `for await` loop ENDING. The `final_card` variant already exists in the contract (`{ id; type:"final_card"; card: TrendCard }`) — NO contract change needed.
+- All three existing decorators (`rescoring-live-session-port.ts`, `persisting-live-session-port.ts`, `persisting-trend-card-live-session-port.ts`) act ONLY on `event.type === "final_card"`; since the agent never emits it, all three no-op and the card is never persisted.
+- Decorator chain in `live-dependencies.ts` (raw → outward): `ModelArkLiveSession → rescoring → persisting(project) → persisting-trend-card(save+embed)`. Each records `lastRequest` from `send()` and guards on `lastRequest?.kind === "trend-card"`.
+- `buildTrendCard()` in `src/warehouse/trend-card-builder.ts` is NOT dead code (used by `trend-card-ingestion.ts`, an offline warehouse job) — but the LIVE author path never calls it. It is the exact machine that turns crawl records → a schema-correct `TrendCard`.
+
+**Design (hướng B):** add ONE new decorator `synthesizing-trend-card-live-session-port.ts`, placed INNERMOST (closest to raw MA session) so its synthetic card flows outward through rescoring → persisting like a real one:
+1. Record `crawl`/request from `send()` (same `lastRequest` pattern).
+2. In `openEvents`: track whether a `final_card` was seen. When the `for await` loop ENDS for a `kind:"trend-card"` run WITHOUT having seen `final_card` → build a card server-side from the collected crawl data (reuse `buildTrendCard` + reducer + `scoreOpportunity` + recommendation, mirroring how `rescoring` re-crawls via `CrawlPort`) → `yield { type:"final_card", card }` BEFORE the iterator returns.
+3. Downstream: `persisting-trend-card` embeds + `repository.save(card)` → warehouse; `ma-event-mapper` maps `final_card` → `card:ready`; the B1-fixed client navigates to `/trends/{id}` and renders the insight dashboard.
+4. Best-effort: synthesis failure must NOT interrupt MA events (same try/catch discipline as the sibling decorators); if synthesis can't produce a card, fall through to B1's ended-without-card "failed" path.
+
+**Scoped frozen-unlock (APPROVED by user 2026-09-09):**
+- UNLOCKED for E12-B2: `src/integration/*` — new `synthesizing-trend-card-live-session-port.ts` + wiring in `live-dependencies.ts` + `src/integration/__tests__/*`.
+- `src/agent/*` — unlock ONLY if the plan proves the collected crawl records cannot be reached without it. Rescoring re-crawls via `CrawlPort`, so `src/agent/*` is likely NOT needed. Architect will report before touching it.
+- NOT touched: `packages/contracts/*`, `src/scoring/*`, `src/warehouse/*` (read `buildTrendCard` only), `src/bff/*`, `app/**`, `src/ui/*`, `.env*`, migrations.
+- Re-freeze all unlocked paths after merge (S14/S15 discipline).
+
+**Sequencing:** plan-only first (confirm whether `src/agent/*` is required) → architect review → RED → GREEN → FACT DoD (`tsc`/`eslint`/`vitest` + diff-stat + frozen audit) → architect commits with explicit paths. One Codex session for the whole feature.
+- STATUS: **APPROVED — plan-only phase next.**
