@@ -661,4 +661,27 @@ panel:
 - Re-freeze all unlocked paths after merge (S14/S15 discipline).
 
 **Sequencing:** plan-only first (confirm whether `src/agent/*` is required) → architect review → RED → GREEN → FACT DoD (`tsc`/`eslint`/`vitest` + diff-stat + frozen audit) → architect commits with explicit paths. One Codex session for the whole feature.
-- STATUS: **APPROVED — plan-only phase next.**
+- STATUS: **DONE — see E12-B2 DONE stamp below (committed 29f9d32).**
+
+
+---
+
+### E12-B2 — DONE (committed 29f9d32, 2026-09-09)
+
+STATUS: **DONE — GREEN merged, architect FACT-verified.**
+
+**What shipped (commit `29f9d32`, 6 files, +853/−4, all under `src/integration/*`):**
+- NEW `src/integration/synthesizing-trend-card-live-session-port.ts` — innermost decorator. On a `kind:"trend-card"` run whose `openEvents()` loop ends WITHOUT a `final_card` (and not aborted / not already attempted), it synthesizes a card server-side and yields `{ id: "${runId}:repo-synthesized-final-card", type:"final_card", card }` before returning. Synthesis: prefetch all 7 `ALL_CRAWL_SOURCES` via `CrawlPort.fetch` with `Promise.allSettled` (passing the abort signal) → bridge settled results into `buildTrendCard()` via in-memory `transport.execute` + identity `SourceAdapter`s (builder does NOT re-fetch; per-source failures rethrown so the builder's degradation runs) → `reducer = reduceOpportunityComponents`, local deterministic `RecommendationPort` (75/50 thresholds → Act now/Watch/Skip; reasoning = rounded score, confidence %, source coverage, missing summary; never parses MA markdown), system clock, structured logger, pass-through metricSink. Production defaults (system clock + deterministic recommendation) live INSIDE the decorator. Best-effort try/catch — failure emits nothing and never interrupts MA events.
+- EDIT `src/integration/rescoring-live-session-port.ts` (+4) — inside the existing `final_card && kind==="trend-card"` gate, added a guard: if `event.id === "${runId}:repo-synthesized-final-card"` → `yield event; continue;` (no re-crawl/re-score, reference identity preserved). Real MA final_card ids keep the existing rescore path.
+- EDIT `src/integration/live-dependencies.ts` (from RED) — inert-now-real gated wiring: synthesizer installed as rescoring's `inner` ONLY when `trendCardRepository !== undefined && crawl !== stubCrawlPort`; stub-crawl / no-repository paths unchanged.
+- Tests: NEW `__tests__/synthesizing-trend-card-live-session-port.test.ts` (8 tests) + `__tests__/rescoring-live-session-port.test.ts` (+1 synthetic-ID skip) + `__tests__/live-dependencies.test.ts` (+1 wiring-gate).
+
+**Architect FACT re-verification (independent, this session):**
+- `npx tsc --noEmit` → exit 0 (clean).
+- `npx eslint src/integration` → exit 0 (clean).
+- `npx vitest run src/integration` → **132 passed / 132** (24 files) — the 4 previously-RED tests now GREEN.
+- `npx vitest run` (full) → **583 passed / 583** (103 files) — no regressions.
+- `git diff --check` → clean. `git diff --stat` → only `src/integration/*` (2 impl + wiring + 3 test files).
+- Frozen audit → FROZEN_CLEAN: every changed/untracked path under `src/integration/`; `src/agent/*`, `packages/contracts/*`, `src/scoring/*`, `src/warehouse/*`, `src/bff/*`, `app/**`, `src/ui/*`, `.env*`, migrations byte-unchanged. `src/agent/*` NOT needed (confirmed at plan stage).
+
+**Re-freeze:** `src/integration/*` re-frozen post-merge (S14/S15 discipline). Any future edit needs a new scoped unlock.
