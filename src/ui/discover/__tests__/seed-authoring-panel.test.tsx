@@ -5,6 +5,37 @@ import type { TrendCard } from "../../../../packages/contracts";
 import type { BffRequest } from "../../../bff/types";
 import { SeedAuthoringPanel } from "../seed-authoring-panel";
 
+type TestTask = {
+  id: string;
+  runId: string;
+  seed: string;
+  market: string;
+  productType: string;
+  status: "in-progress" | "done" | "failed";
+  startedAt: string;
+  cardId?: string;
+};
+
+function createTaskStore(initial: TestTask[] = []) {
+  let tasks = [...initial];
+  return {
+    load: () => [...tasks],
+    save(task: TestTask) {
+      const existingIndex = tasks.findIndex(
+        (persisted) => persisted.id === task.id,
+      );
+      if (existingIndex === -1) {
+        tasks = [...tasks, task];
+        return;
+      }
+
+      const nextTasks = [...tasks];
+      nextTasks[existingIndex] = task;
+      tasks = nextTasks;
+    },
+  };
+}
+
 const { pushSpy } = vi.hoisted(() => ({ pushSpy: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
@@ -42,6 +73,7 @@ function sseResponse(...events: unknown[]): Response {
 }
 
 afterEach(() => {
+  window.sessionStorage?.clear?.();
   pushSpy.mockReset();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -165,5 +197,176 @@ describe("SeedAuthoringPanel", () => {
         screen.queryByAltText(/generated (preview|design)/i),
       ).toBeNull(),
     );
+  });
+
+  it("persists an in-progress task on submit", async () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    fetchSpy.mockResolvedValue(sseResponse());
+    vi.stubGlobal("fetch", fetchSpy);
+    const taskStore = createTaskStore();
+
+    render(<SeedAuthoringPanel taskStore={taskStore} />);
+
+    fireEvent.change(screen.getByLabelText("Topic"), {
+      target: { value: "  alpine folklore  " },
+    });
+    fireEvent.change(screen.getByLabelText("Market"), {
+      target: { value: "DE" },
+    });
+    fireEvent.change(screen.getByLabelText("Product type"), {
+      target: { value: "mug" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Author trend card" }),
+    );
+
+    await waitFor(() => {
+      expect(taskStore.load()).toHaveLength(1);
+      expect(taskStore.load()[0]).toEqual(
+        expect.objectContaining({
+          seed: "alpine folklore",
+          market: "DE",
+          productType: "mug",
+          status: "in-progress",
+        }),
+      );
+      expect(taskStore.load()[0]?.id).toBe(taskStore.load()[0]?.runId);
+    });
+  });
+
+  it("flips a task to done and renders its dashboard link on card:ready", async () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    fetchSpy.mockResolvedValue(
+      sseResponse(
+        { id: "card-ready", type: "card:ready", card: trendCard },
+        { id: "done", type: "done" },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    const taskStore = createTaskStore();
+
+    render(<SeedAuthoringPanel taskStore={taskStore} />);
+
+    fireEvent.change(screen.getByLabelText("Topic"), {
+      target: { value: "alpine folklore" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Author trend card" }),
+    );
+
+    await waitFor(() =>
+      expect(taskStore.load()[0]).toEqual(
+        expect.objectContaining({
+          status: "done",
+          cardId: "card-xyz",
+        }),
+      ),
+    );
+    expect(
+      screen.getByRole("link", { name: /alpine folklore/i }),
+    ).toHaveAttribute("href", "/trends/card-xyz");
+    expect(pushSpy).toHaveBeenCalledWith("/trends/card-xyz");
+  });
+
+  it("renders a done task from the store on mount without fetching", () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    fetchSpy.mockResolvedValue(sseResponse());
+    vi.stubGlobal("fetch", fetchSpy);
+    const taskStore = createTaskStore([
+      {
+        id: "run-done-1",
+        runId: "run-done-1",
+        seed: "winter gifting",
+        market: "GB",
+        productType: "poster",
+        status: "done",
+        startedAt: "2026-09-09T02:00:00.000Z",
+        cardId: "card-abc",
+      },
+    ]);
+
+    render(<SeedAuthoringPanel taskStore={taskStore} />);
+
+    expect(
+      screen.getByRole("link", { name: /winter gifting/i }),
+    ).toHaveAttribute("href", "/trends/card-abc");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("resumes an in-progress task on mount", async () => {
+    const resumedCard = { ...trendCard, id: "card-resumed", seed: "halloween" };
+    const fetchSpy = vi.fn<typeof fetch>();
+    fetchSpy.mockResolvedValue(
+      sseResponse(
+        { id: "card-ready", type: "card:ready", card: resumedCard },
+        { id: "done", type: "done" },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    const taskStore = createTaskStore([
+      {
+        id: "run-resume-1",
+        runId: "run-resume-1",
+        seed: "halloween",
+        market: "US",
+        productType: "t-shirt",
+        status: "in-progress",
+        startedAt: "2026-09-09T03:00:00.000Z",
+      },
+    ]);
+
+    render(<SeedAuthoringPanel taskStore={taskStore} />);
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchSpy.mock.calls[0] ?? [];
+    const parsedUrl = new URL(String(url), "http://localhost");
+    expect(parsedUrl.pathname).toBe("/api/live");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      runId: "run-resume-1",
+      reconnect: false,
+    });
+    expect(
+      JSON.parse(parsedUrl.searchParams.get("request") ?? "null") as BffRequest,
+    ).toEqual({
+      kind: "trend-card",
+      crawl: {
+        source: "google_trends",
+        market: "US",
+        seed: "halloween",
+        productType: "t-shirt",
+        mode: "live",
+      },
+    });
+    await waitFor(() =>
+      expect(taskStore.load()[0]).toEqual(
+        expect.objectContaining({
+          status: "done",
+          cardId: "card-resumed",
+        }),
+      ),
+    );
+    expect(pushSpy).toHaveBeenCalledWith("/trends/card-resumed");
+  });
+
+  it("renders a failed task as an error row", () => {
+    const fetchSpy = vi.fn<typeof fetch>();
+    fetchSpy.mockResolvedValue(sseResponse());
+    vi.stubGlobal("fetch", fetchSpy);
+    const taskStore = createTaskStore([
+      {
+        id: "run-failed-1",
+        runId: "run-failed-1",
+        seed: "spring florals",
+        market: "US",
+        productType: "mug",
+        status: "failed",
+        startedAt: "2026-09-09T04:00:00.000Z",
+      },
+    ]);
+
+    render(<SeedAuthoringPanel taskStore={taskStore} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/spring florals/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
