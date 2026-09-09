@@ -567,3 +567,26 @@ panel:
 | Task | Area | Status | Notes |
 |-|-|-|-|
 | **S15** | Per-step structured logging + task-progress log (with timestamps) + UI step indicator | NEW `src/monitoring/console-log-sink.ts` (+test); EDIT (unlocked) `src/integration/live-dependencies.ts`, `src/integration/live-route.ts`, `src/bff/sse-stream.ts`, `src/agent/modelark-live-session.ts`; EDIT (non-frozen) `src/ui/discover/seed-authoring-panel.tsx` (+test) | 📋 SCOPE LOCKED + UNLOCK (approved, see block above) | Backend: inject a real logging `MetricSink` so every already-instrumented step (session attach/create, send, event_stream, submit_tool_result, per-crawl-source, final-card build, each SSE step event, stream terminal outcome, request start/end) prints one timestamped JSON line incl. outcome + duration + failure reason; redact secrets. UI: dynamic step label from streamed events. FROZEN edits are ADDITIVE-logging only, best-effort, never alter response/order/scoring. |
+
+
+---
+
+### S15 — DONE ✅ (Phase O closed) — commit `51f3635`
+
+**Status:** MERGED (architect-committed, working tree clean). The four Phase O / S15 frozen-file unlocks are now **RE-FROZEN** — no further edits without a new scoped unlock.
+
+**Delivered (12 files, +1001 / -46):**
+- NEW `src/monitoring/console-log-sink.ts` (+ `__tests__/console-log-sink.test.ts`) — `ConsoleLogMetricSink` decorator + `writeStructuredLog`; one ISO-8601-timestamped JSON line per observation to stdout; forwards to inner sink; `observationId` dedup; best-effort (never throws out of `record()`); redacts secrets/bodies/URLs.
+- `src/integration/live-dependencies.ts` — ROOT-CAUSE FIX: injects the real logging `MetricSink` into the ModelArk client, live-session builder, Postgres repo, and returned deps; metrics no longer discarded to `NOOP_METRIC_SINK`.
+- `src/integration/live-route.ts` — request START/END log lines (runId/kind/seed/market/outcome/durationMs/reason) + records the pre-existing `ptv_live_request_dispatch_duration_ms`; previously-silent error branches now emit outcome+reason. ADDITIVE.
+- `src/bff/sse-stream.ts` — per-event disposition + terminal-outcome log lines (runId/eventType/outcome/reason/durationMs). ADDITIVE.
+- `src/agent/modelark-live-session.ts` — per-crawl-source, final-card, build, and terminal-failure progress logs with runId+reason (runId threaded into the internal run; no public option shape change). ADDITIVE.
+- `src/ui/discover/seed-authoring-panel.tsx` (+ test) — dynamic step label (Scanning → Synthesizing → Generating design → Finalizing) from streamed UiEvents; `card:ready`/`error` termination + persistence + single navigation unchanged.
+
+**Independent FACT verification (architect re-ran, not Codex self-report):**
+- `npx tsc --noEmit` → exit 0
+- `npx eslint src/monitoring src/integration src/bff src/agent src/ui/discover` → exit 0
+- Full `npx vitest run` → **102 files / 571 tests passed** (baseline 101/555 → +1 file / +16 tests)
+- Still-frozen audit EMPTY: `packages/contracts/*`, `src/bff/types.ts`, `src/bff/router.ts`, `src/bff/sse-translator.ts`, `src/agent/modelark-managed-agent-client.ts`, `src/agent/ma-event-mapper.ts`, `app/**`, `src/warehouse/*`, `src/scoring/*`, `packages/config/*`, `.env*`, migrations, `src/ui/live-theater/*` all byte-unchanged.
+- Contracts untouched — NO new metric/label/event type added; `ptv_live_request_dispatch_duration_ms` was already defined (lines 156/188) and is now merely observed.
+- Diff review of all 4 unlocked frozen files confirmed every prior response/throw is byte-identical; edits are pure additive logging (no control-flow/order/scoring change).
