@@ -1,20 +1,49 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
+import { type FormEvent, useEffect, useState } from "react";
 
 import { Badge, Panel, primaryActionClass } from "../components/ui-primitives";
 import type { UiEventSource } from "../live-theater/event-source";
-import { LiveTheater } from "../live-theater/live-theater";
 import { createSseUiEventSource } from "../live-theater/sse-ui-event-source";
 
 const fieldClass =
   "mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
 
 export function SeedAuthoringPanel() {
+  const router = useRouter();
   const [topic, setTopic] = useState("");
   const [market, setMarket] = useState("US");
   const [productType, setProductType] = useState("t-shirt");
   const [eventSource, setEventSource] = useState<UiEventSource>();
+
+  useEffect(() => {
+    if (!eventSource) {
+      return;
+    }
+
+    const source = eventSource;
+    let cancelled = false;
+
+    async function consumeEvents() {
+      for await (const event of source.events()) {
+        if (cancelled) {
+          break;
+        }
+
+        if (event.type === "card:ready") {
+          router.push("/trends/" + event.card.id);
+          break;
+        }
+      }
+    }
+
+    void consumeEvents();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [eventSource, router]);
 
   function submitSeed(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -124,7 +153,11 @@ export function SeedAuthoringPanel() {
         </form>
       </Panel>
 
-      {eventSource ? <LiveTheater eventSource={eventSource} /> : null}
+      {eventSource ? (
+        <p className="text-sm font-medium text-indigo-700" role="status">
+          Creating your Trend Card…
+        </p>
+      ) : null}
     </div>
   );
 }
