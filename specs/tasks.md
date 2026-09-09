@@ -533,3 +533,37 @@ panel:
 - `git status --short` = ONLY the 3 scoped files pre-commit; frozen audit (`packages/contracts src/bff src/agent src/ui app src/warehouse src/scoring packages/config`) EMPTY. Post-commit tree clean.
 
 **RE-FREEZE:** `src/integration/*` is re-frozen effective this stamp. The S14 unlock is closed. Future edits require a fresh scoped unlock. Frozen set restored to: `src/ui/live-theater/*`, `packages/contracts/*`, `src/bff/*`, `src/agent/*`, `src/integration/*`, `app/**`, `src/warehouse/*`, `src/scoring/*`, `packages/config/*`, all `.env*`, migrations. (`src/ui/discover/*`, `src/ui/studio/*` remain non-frozen.)
+
+
+---
+
+## Phase O (Observability) — S15: Per-step structured logging + UI progress
+
+> Context: after S14, the seller/product owner (2026-09-09) reported that the system emits no useful logs: clicking "Create a Trend Card" runs 15–20 min with the server log showing only default Next.js access lines (`POST /api/live … 200 in 57467ms`) plus SSE reconnects (14s/8s/5s/11s), no per-step request/response, no failure reason, and the UI shows only a static "Creating your Trend Card…" with no indication of which step the task reached. ADDED REQ (same day): log the TASK PROGRESS so the user can see which step the task is on, where it failed, and why — every line WITH a timestamp.
+>
+> Architect FACT diagnosis (read-only, from source): (1) the request path has ZERO structured logging — `src/integration/live-route.ts`, `src/bff/sse-stream.ts`, `src/agent/modelark-live-session.ts`, `src/agent/modelark-managed-agent-client.ts` contain no `console.*`/logger. (2) The metric framework DOES already instrument every step (`measured()` records `ptv_infra_operation_*` for `session_attach_or_create`/`send`/`event_stream`/`submit_tool_result`/`history_read`; `modelark-live-session` records per-crawl-source outcomes + `ptv_trend_card_build_total`; `sse-stream` records `ptv_sse_event_total`/`ptv_sse_stream_total`; `live-route` records `ptv_live_request_total`), BUT `buildLiveDependencies()` never passes a `metricSink`, so `createLivePostHandler` falls back to `NOOP_METRIC_SINK` and every observation is discarded. So the "progress framework" already exists; it is silenced. (3) The UI (`src/ui/discover/seed-authoring-panel.tsx` `consumeTaskSource`) receives the intermediate `scanning`/`synthesizing`/`image:ready`/`answer` UiEvents but ignores all of them — it only acts on `card:ready`/`error` — so the browser already gets step signals and just renders a static label.
+
+### Frozen-file unlock (Phase O / S15 scope only)
+
+> AUTHORIZED UNLOCK (user-approved 2026-09-09, "OK, duyệt."): to land S15, the following otherwise-FROZEN files are temporarily unlocked ONLY for the minimal, explicitly-scoped, ADDITIVE logging edits below. No contract, wire-shape, event-ordering, scoring, or control-flow change. Best-effort logging only — a logging failure must NEVER interrupt the MA event stream or change any response.
+>
+> 1. `src/integration/live-dependencies.ts` — build a real logging `MetricSink` (the new `console-log-sink.ts`, see below) and pass it as `metricSink` into the dependencies so the existing per-step metrics stop hitting `NOOP_METRIC_SINK`. Optionally also thread it to the ModelArk client / live session builders that already accept a `metricSink` option. This is MANDATORY — without it every log stays silent.
+> 2. `src/integration/live-route.ts` — emit a request-lifecycle log line at START (kind/seed/market/runId) and END (outcome + total duration + failure reason). ADDITIVE next to the existing `recordRequest` calls; no control-flow change.
+> 3. `src/bff/sse-stream.ts` — emit a log line for each translated step event (`scanning`/`synthesizing`/`image:ready`/`answer`/`card:ready`, emitted/deduplicated/unmapped) and for the stream terminal outcome (`done`/`fatal_error`+reason/`cancelled`). ADDITIVE beside the existing `recordEvent`/`recordStreamOutcome` calls.
+> 4. `src/agent/modelark-live-session.ts` — emit a log line for each crawl source outcome (source → success/empty/failure + reason) and for the final-card build outcome (complete/degraded/zero_evidence). ADDITIVE beside the existing `metricSink.record` calls.
+>
+> NOTE: `src/agent/modelark-managed-agent-client.ts` already calls `recordOperation()` (with duration) for every ModelArk op via `measured()`, so once a non-NOOP sink is injected it produces per-op timestamped logs WITHOUT editing that file — it stays FROZEN.
+>
+> NEW files (NON-frozen, no unlock needed): `src/monitoring/console-log-sink.ts` (a `MetricSink` decorator that wraps an inner sink, forwards `record()` to it, AND writes one structured JSON line per observation to stdout with an ISO timestamp) + `src/monitoring/__tests__/console-log-sink.test.ts`.
+>
+> UI change (NON-frozen, no unlock needed): `src/ui/discover/seed-authoring-panel.tsx` (+ its test) — render a dynamic step label derived from the streamed UiEvents (e.g. `Scanning google_trends…` → `Synthesizing…` → `Generating design…`) instead of the static "Creating your Trend Card…". Consume the intermediate events in `consumeTaskSource` without breaking the existing `card:ready`/`error` termination.
+>
+> STILL FROZEN (untouched): `packages/contracts/*` (no new metric/event types — reuse existing `MetricObservation`/`UiEvent`), `src/bff/types.ts`, `src/bff/router.ts`, `src/bff/sse-translator.ts`, `src/bff/ma-event-mapper.ts` (n/a), `src/agent/modelark-managed-agent-client.ts`, `src/agent/ma-event-mapper.ts`, `app/**`, `src/warehouse/*`, `src/scoring/*`, `packages/config/*`, all `.env*`, migrations, `src/ui/live-theater/*`.
+>
+> LOG FORMAT: one JSON object per line to stdout via `console.log`, each carrying at minimum `ts` (ISO-8601), `metric`/`step` name, `runId` when available, `outcome`, `durationMs` when available, and a `reason`/`message` on failures. SECRETS: never log the ModelArk `apiKey`/`authorization` header or full request bodies — log only structured step metadata (kind/seed/market/source/outcome/duration/reason).
+>
+> Re-freeze all four unlocked files after the S15 merge; a DONE stamp with commit + independent FACT verification will close this unlock.
+
+| Task | Area | Status | Notes |
+|-|-|-|-|
+| **S15** | Per-step structured logging + task-progress log (with timestamps) + UI step indicator | NEW `src/monitoring/console-log-sink.ts` (+test); EDIT (unlocked) `src/integration/live-dependencies.ts`, `src/integration/live-route.ts`, `src/bff/sse-stream.ts`, `src/agent/modelark-live-session.ts`; EDIT (non-frozen) `src/ui/discover/seed-authoring-panel.tsx` (+test) | 📋 SCOPE LOCKED + UNLOCK (approved, see block above) | Backend: inject a real logging `MetricSink` so every already-instrumented step (session attach/create, send, event_stream, submit_tool_result, per-crawl-source, final-card build, each SSE step event, stream terminal outcome, request start/end) prints one timestamped JSON line incl. outcome + duration + failure reason; redact secrets. UI: dynamic step label from streamed events. FROZEN edits are ADDITIVE-logging only, best-effort, never alter response/order/scoring. |
