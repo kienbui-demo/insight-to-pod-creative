@@ -31,6 +31,10 @@ export function createRescoringLiveSessionPort(options: {
               event.type === "final_card" &&
               lastRequest?.kind === "trend-card"
             ) {
+              if (event.id === `${runId}:repo-synthesized-final-card`) {
+                yield event;
+                continue;
+              }
               rescored = true;
               try {
                 const card = event.card;

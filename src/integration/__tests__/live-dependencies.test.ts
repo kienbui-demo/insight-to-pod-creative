@@ -13,7 +13,9 @@ import { PostgresTrendCardRepository } from "../../storage/postgres-trend-card-r
 import { alwaysMissTrendCardLookup } from "../always-miss-trend-card-lookup";
 import { buildLiveDependencies } from "../live-dependencies";
 import * as embeddingModule from "../modelark-embedding-port";
+import * as rescoringModule from "../rescoring-live-session-port";
 import * as seedreamModule from "../modelark-seedream-image-port";
+import * as synthesizingModule from "../synthesizing-trend-card-live-session-port";
 
 const VALID_ENV: NodeJS.ProcessEnv = {
   NODE_ENV: "test",
@@ -207,5 +209,78 @@ describe("buildLiveDependencies", () => {
     await expect(collect(inMemoryRun.openEvents())).resolves.toEqual(events);
 
     expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("places synthesis inside rescoring only when real crawl and repository capabilities exist", () => {
+    const createRun = (): LiveRun => ({
+      history: vi.fn(async () => []),
+      async *openEvents(): AsyncIterable<RawMaEvent> {},
+      send: vi.fn(async () => undefined),
+      cancel: vi.fn(),
+    });
+    const rawLiveSessions: LiveSessionPort = {
+      create: vi.fn(async () => createRun()),
+    };
+    const synthesizedLiveSessions: LiveSessionPort = {
+      create: vi.fn(async () => createRun()),
+    };
+    const rescoredLiveSessions: LiveSessionPort = {
+      create: vi.fn(async () => createRun()),
+    };
+    vi.spyOn(
+      modelarkLiveSessionModule,
+      "createModelArkLiveSessionPort",
+    ).mockReturnValue(rawLiveSessions);
+    const synthesizingFactory = vi
+      .spyOn(
+        synthesizingModule,
+        "createSynthesizingTrendCardLiveSessionPort",
+      )
+      .mockReturnValue(synthesizedLiveSessions);
+    const rescoringFactory = vi
+      .spyOn(rescoringModule, "createRescoringLiveSessionPort")
+      .mockReturnValue(rescoredLiveSessions);
+
+    buildLiveDependencies({
+      ...VALID_ENV,
+      DATABASE_URL: "postgresql://user:pass@localhost:5432/db",
+      APIFY_TOKEN: "test-apify-token",
+    });
+
+    expect(synthesizingFactory).toHaveBeenCalledOnce();
+    const synthesizingOptions = synthesizingFactory.mock.calls[0]?.[0];
+    expect(synthesizingOptions).toEqual(
+      expect.objectContaining({
+        inner: rawLiveSessions,
+        crawl: expect.objectContaining({ fetch: expect.any(Function) }),
+        metricSink: expect.anything(),
+      }),
+    );
+    expect(rescoringFactory).toHaveBeenCalledOnce();
+    expect(rescoringFactory).toHaveBeenCalledWith({
+      inner: synthesizedLiveSessions,
+      crawl: synthesizingOptions?.crawl,
+    });
+
+    synthesizingFactory.mockClear();
+    rescoringFactory.mockClear();
+    buildLiveDependencies({
+      ...VALID_ENV,
+      APIFY_TOKEN: "test-apify-token",
+    });
+
+    expect(synthesizingFactory).not.toHaveBeenCalled();
+    expect(rescoringFactory).toHaveBeenCalledOnce();
+    expect(rescoringFactory.mock.calls[0]?.[0].inner).toBe(rawLiveSessions);
+
+    synthesizingFactory.mockClear();
+    rescoringFactory.mockClear();
+    buildLiveDependencies({
+      ...VALID_ENV,
+      DATABASE_URL: "postgresql://user:pass@localhost:5432/db",
+    });
+
+    expect(synthesizingFactory).not.toHaveBeenCalled();
+    expect(rescoringFactory).not.toHaveBeenCalled();
   });
 });

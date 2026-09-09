@@ -340,4 +340,23 @@ describe("createRescoringLiveSessionPort", () => {
     expect(yielded[4]).toBe(secondCard);
     expect(crawl.calls).toHaveLength(ALL_CRAWL_SOURCES.length);
   });
+
+  it("passes through a repo-synthesized final_card without re-crawling", async () => {
+    const runId = "run-repo-synthesized";
+    const syntheticFinalCard = {
+      id: `${runId}:repo-synthesized-final-card`,
+      type: "final_card",
+      card: SINGLE_SOURCE_CARD,
+    } satisfies RawMaEvent;
+    const crawl = successfulCrawl();
+    const { port } = createSubject([syntheticFinalCard], crawl);
+    const run = await port.create(runId);
+
+    await run.send(TREND_CARD_REQUEST);
+    const yielded = await collect(run.openEvents());
+
+    expect(yielded).toEqual([syntheticFinalCard]);
+    expect(yielded[0]).toBe(syntheticFinalCard);
+    expect(crawl.calls).toHaveLength(0);
+  });
 });

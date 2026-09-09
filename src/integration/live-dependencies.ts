@@ -21,7 +21,8 @@ import { createPostgresQueryExecutor } from "./postgres-query-executor";
 import { PostgresRunSessionRepository } from "./postgres-run-session-repository";
 import { createRepositoryTrendCardLookup } from "./repository-trend-card-lookup";
 import { DEMO_SELLER_ID } from "./demo-seller";
-import { createRescoringLiveSessionPort } from "./rescoring-live-session-port";
+import * as rescoringModule from "./rescoring-live-session-port";
+import * as synthesizingModule from "./synthesizing-trend-card-live-session-port";
 
 export function buildLiveDependencies(
   env: NodeJS.ProcessEnv = process.env,
@@ -73,11 +74,19 @@ export function buildLiveDependencies(
       lookup,
       metricSink,
     });
+  const synthesizedLiveSessions =
+    trendCardRepository !== undefined && crawl !== stubCrawlPort
+      ? synthesizingModule.createSynthesizingTrendCardLiveSessionPort({
+          inner: innerLiveSessions,
+          crawl,
+          metricSink,
+        })
+      : innerLiveSessions;
   const rescoredLiveSessions =
     crawl === stubCrawlPort
-      ? innerLiveSessions
-      : createRescoringLiveSessionPort({
-          inner: innerLiveSessions,
+      ? synthesizedLiveSessions
+      : rescoringModule.createRescoringLiveSessionPort({
+          inner: synthesizedLiveSessions,
           crawl,
         });
   const withProjectPersistence = executor
