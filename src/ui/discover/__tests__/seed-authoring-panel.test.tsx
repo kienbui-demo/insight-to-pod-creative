@@ -1,9 +1,36 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { TrendCard } from "../../../../packages/contracts";
+import type { TrendCard, UiEvent } from "../../../../packages/contracts";
 import type { BffRequest } from "../../../bff/types";
+import type { UiEventSource } from "../../live-theater/event-source";
 import { SeedAuthoringPanel } from "../seed-authoring-panel";
+
+const { pushSpy, eventSourceOverride } = vi.hoisted(() => ({
+  pushSpy: vi.fn(),
+  eventSourceOverride: {
+    current: undefined as (() => unknown) | undefined,
+  },
+}));
+
+vi.mock("../../live-theater/sse-ui-event-source", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../live-theater/sse-ui-event-source")
+    >();
+
+  return {
+    ...actual,
+    createSseUiEventSource: (
+      ...args: Parameters<typeof actual.createSseUiEventSource>
+    ) => {
+      const override = eventSourceOverride.current;
+      return override === undefined
+        ? actual.createSseUiEventSource(...args)
+        : (override() as ReturnType<typeof actual.createSseUiEventSource>);
+    },
+  };
+});
 
 type TestTask = {
   id: string;
@@ -35,8 +62,6 @@ function createTaskStore(initial: TestTask[] = []) {
     },
   };
 }
-
-const { pushSpy } = vi.hoisted(() => ({ pushSpy: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushSpy }),
@@ -72,9 +97,56 @@ function sseResponse(...events: unknown[]): Response {
   );
 }
 
+function openSseResponse(...events: unknown[]): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const event of events) {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+          );
+        }
+      },
+    }),
+    {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    },
+  );
+}
+
+function eventSourceFrom(...events: UiEvent[]): UiEventSource {
+  return {
+    async *events() {
+      yield* events;
+    },
+  };
+}
+
+function pendingEventSource(onCancel: () => void): UiEventSource {
+  return {
+    events() {
+      return {
+        [Symbol.asyncIterator]() {
+          return {
+            next: () => new Promise<IteratorResult<UiEvent>>(() => undefined),
+            return: async () => {
+              onCancel();
+              return { done: true, value: undefined };
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
 afterEach(() => {
+  eventSourceOverride.current = undefined;
   window.sessionStorage?.clear?.();
   pushSpy.mockReset();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -201,7 +273,7 @@ describe("SeedAuthoringPanel", () => {
 
   it("persists an in-progress task on submit", async () => {
     const fetchSpy = vi.fn<typeof fetch>();
-    fetchSpy.mockResolvedValue(sseResponse());
+    fetchSpy.mockResolvedValue(openSseResponse());
     vi.stubGlobal("fetch", fetchSpy);
     const taskStore = createTaskStore();
 
@@ -373,14 +445,11 @@ describe("SeedAuthoringPanel", () => {
   it("shows the current scanning source in the active task and history row", async () => {
     const fetchSpy = vi.fn<typeof fetch>();
     fetchSpy.mockResolvedValue(
-      sseResponse(
-        {
-          id: "scan-google",
-          type: "scanning",
-          source: "google_trends",
-        },
-        { id: "done", type: "done" },
-      ),
+      openSseResponse({
+        id: "scan-google",
+        type: "scanning",
+        source: "google_trends",
+      }),
     );
     vi.stubGlobal("fetch", fetchSpy);
     const taskStore = createTaskStore();
@@ -403,7 +472,7 @@ describe("SeedAuthoringPanel", () => {
   it("advances the task label through synthesis, image generation, and finalization", async () => {
     const fetchSpy = vi.fn<typeof fetch>();
     fetchSpy.mockResolvedValue(
-      sseResponse(
+      openSseResponse(
         { id: "synthesis", type: "synthesizing", note: "Combining signals" },
         {
           id: "image-ready",
@@ -411,7 +480,6 @@ describe("SeedAuthoringPanel", () => {
           url: "https://example.com/private-design.png",
         },
         { id: "answer", type: "answer", text: "Private agent answer" },
-        { id: "done", type: "done" },
       ),
     );
     vi.stubGlobal("fetch", fetchSpy);
@@ -463,5 +531,73 @@ describe("SeedAuthoringPanel", () => {
     await waitFor(() => expect(taskStore.load()[0]?.status).toBe("failed"));
     expect(screen.getByRole("alert")).toHaveTextContent(/alpine folklore/i);
     expect(pushSpy).not.toHaveBeenCalled();
+  });
+
+  it("fails a task when the stream ends without producing a Trend Card", async () => {
+    const taskStore = createTaskStore();
+    eventSourceOverride.current = () =>
+      eventSourceFrom(
+        { id: "synthesis", type: "synthesizing" },
+        {
+          id: "answer",
+          type: "answer",
+          text: "The assistant answered in chat instead.",
+        },
+        { id: "done", type: "done" },
+      );
+
+    render(<SeedAuthoringPanel taskStore={taskStore} />);
+    fireEvent.change(screen.getByLabelText("Topic"), {
+      target: { value: "alpine folklore" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Author trend card" }),
+    );
+
+    await waitFor(() => expect(taskStore.load()[0]?.status).toBe("failed"));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "No Trend Card was produced — the assistant answered in chat.",
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText(/Creating your Trend Card…/i)).toBeNull();
+    expect(pushSpy).not.toHaveBeenCalled();
+  });
+
+  it("fails and cancels a task when the watchdog times out", async () => {
+    vi.useFakeTimers();
+    const cancelSpy = vi.fn();
+    const taskStore = createTaskStore();
+    eventSourceOverride.current = () => pendingEventSource(cancelSpy);
+    const { unmount } = render(<SeedAuthoringPanel taskStore={taskStore} />);
+
+    try {
+      fireEvent.change(screen.getByLabelText("Topic"), {
+        target: { value: "alpine folklore" },
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Author trend card" }),
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(taskStore.load()[0]?.status).toBe("in-progress");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000);
+      });
+
+      expect(taskStore.load()[0]?.status).toBe("failed");
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Trend Card creation timed out.",
+      );
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(screen.queryByText(/Creating your Trend Card…/i)).toBeNull();
+      expect(cancelSpy).toHaveBeenCalledTimes(1);
+      expect(pushSpy).not.toHaveBeenCalled();
+    } finally {
+      unmount();
+      vi.useRealTimers();
+    }
   });
 });

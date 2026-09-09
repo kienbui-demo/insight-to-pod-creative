@@ -22,6 +22,10 @@ import {
 const fieldClass =
   "mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
 const INITIAL_PROGRESS = "Creating your Trend Card…";
+const NO_CARD_FAILURE_MESSAGE =
+  "No Trend Card was produced — the assistant answered in chat.";
+const TIMEOUT_FAILURE_MESSAGE = "Trend Card creation timed out.";
+const TASK_WATCHDOG_TIMEOUT_MS = 120_000;
 
 function sourceLabel(source: string): string {
   return source
@@ -71,23 +75,70 @@ function consumeTaskSource({
   task,
   onCardReady,
   onFailed,
+  onEnded,
+  onTimedOut,
   onProgress,
 }: {
   source: UiEventSource;
   task: DiscoverTask;
   onCardReady: (task: DiscoverTask, cardId: string) => void;
   onFailed: (task: DiscoverTask) => void;
+  onEnded: (task: DiscoverTask) => void;
+  onTimedOut: (task: DiscoverTask) => void;
   onProgress: (task: DiscoverTask, label: string) => void;
 }): () => void {
   const iterator = source.events()[Symbol.asyncIterator]();
   let cancelled = false;
-  let cardReadyHandled = false;
+  let terminalHandled = false;
+  let iteratorClosed = false;
+  let watchdog: ReturnType<typeof setTimeout> | undefined;
+
+  function clearWatchdog(): void {
+    if (watchdog !== undefined) {
+      clearTimeout(watchdog);
+      watchdog = undefined;
+    }
+  }
+
+  async function closeIterator(): Promise<void> {
+    if (iteratorClosed) {
+      return;
+    }
+    iteratorClosed = true;
+
+    try {
+      await iterator.return?.();
+    } catch {
+      // An already completed stream has nothing left to cancel.
+    }
+  }
+
+  function handleTerminal(callback: () => void): boolean {
+    if (cancelled || terminalHandled) {
+      return false;
+    }
+
+    terminalHandled = true;
+    clearWatchdog();
+    callback();
+    return true;
+  }
+
+  watchdog = setTimeout(() => {
+    if (handleTerminal(() => onTimedOut(task))) {
+      void closeIterator();
+    }
+  }, TASK_WATCHDOG_TIMEOUT_MS);
 
   async function consumeEvents(): Promise<void> {
     try {
-      while (!cancelled) {
+      while (!cancelled && !terminalHandled) {
         const result = await iterator.next();
-        if (result.done || cancelled) {
+        if (cancelled || terminalHandled) {
+          break;
+        }
+        if (result.done) {
+          handleTerminal(() => onEnded(task));
           break;
         }
 
@@ -96,27 +147,26 @@ function consumeTaskSource({
         if (label !== undefined) {
           onProgress(task, label);
         }
-        if (event.type === "card:ready" && !cardReadyHandled) {
-          cardReadyHandled = true;
-          onCardReady(task, event.card.id);
+        if (event.type === "card:ready") {
+          handleTerminal(() => onCardReady(task, event.card.id));
           break;
         }
 
         if (event.type === "error" && !event.recoverable) {
-          onFailed(task);
+          handleTerminal(() => onFailed(task));
+          break;
+        }
+
+        if (event.type === "done") {
+          handleTerminal(() => onEnded(task));
           break;
         }
       }
     } catch {
-      if (!cancelled) {
-        onFailed(task);
-      }
+      handleTerminal(() => onFailed(task));
     } finally {
-      try {
-        await iterator.return?.();
-      } catch {
-        // An already completed stream has nothing left to cancel.
-      }
+      clearWatchdog();
+      await closeIterator();
     }
   }
 
@@ -124,7 +174,8 @@ function consumeTaskSource({
 
   return () => {
     cancelled = true;
-    void iterator.return?.();
+    clearWatchdog();
+    void closeIterator();
   };
 }
 
@@ -144,6 +195,9 @@ export function SeedAuthoringPanel({
   const [activeTask, setActiveTask] = useState<DiscoverTask>();
   const [tasks, setTasks] = useState<DiscoverTask[]>([]);
   const [taskProgress, setTaskProgress] = useState<Record<string, string>>({});
+  const [taskFailureMessages, setTaskFailureMessages] = useState<
+    Record<string, string>
+  >({});
 
   const updateTaskProgress = useCallback(
     (task: DiscoverTask, label: string): void => {
@@ -168,7 +222,7 @@ export function SeedAuthoringPanel({
   );
 
   const failTask = useCallback(
-    (task: DiscoverTask): void => {
+    (task: DiscoverTask, message?: string): void => {
       const failedTask = {
         ...task,
         status: "failed",
@@ -176,6 +230,12 @@ export function SeedAuthoringPanel({
 
       store.save(failedTask);
       setTasks(store.load());
+      if (message !== undefined) {
+        setTaskFailureMessages((current) => ({
+          ...current,
+          [task.id]: message,
+        }));
+      }
     },
     [store],
   );
@@ -192,6 +252,12 @@ export function SeedAuthoringPanel({
           task,
           onCardReady: completeTask,
           onFailed: failTask,
+          onEnded(task) {
+            failTask(task, NO_CARD_FAILURE_MESSAGE);
+          },
+          onTimedOut(task) {
+            failTask(task, TIMEOUT_FAILURE_MESSAGE);
+          },
           onProgress: updateTaskProgress,
         }),
       );
@@ -208,18 +274,29 @@ export function SeedAuthoringPanel({
       return;
     }
 
+    function clearActiveTask(): void {
+      setEventSource(undefined);
+      setActiveTask(undefined);
+    }
+
     return consumeTaskSource({
       source: eventSource,
       task: activeTask,
       onCardReady(task, cardId) {
         completeTask(task, cardId);
-        setEventSource(undefined);
-        setActiveTask(undefined);
+        clearActiveTask();
       },
       onFailed(task) {
         failTask(task);
-        setEventSource(undefined);
-        setActiveTask(undefined);
+        clearActiveTask();
+      },
+      onEnded(task) {
+        failTask(task, NO_CARD_FAILURE_MESSAGE);
+        clearActiveTask();
+      },
+      onTimedOut(task) {
+        failTask(task, TIMEOUT_FAILURE_MESSAGE);
+        clearActiveTask();
       },
       onProgress: updateTaskProgress,
     });
@@ -367,8 +444,12 @@ export function SeedAuthoringPanel({
                   </a>
                 ) : task.status === "failed" ? (
                   <p className="text-sm font-medium text-red-700" role="alert">
-                    Failed to create {task.seed} · {task.market} ·{" "}
-                    {task.productType}
+                    {taskFailureMessages[task.id] ?? (
+                      <>
+                        Failed to create {task.seed} · {task.market} ·{" "}
+                        {task.productType}
+                      </>
+                    )}
                   </p>
                 ) : (
                   <p
